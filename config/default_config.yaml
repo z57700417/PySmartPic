@@ -1,0 +1,111 @@
+# 汽车轮毂字母识别系统 - 默认配置文件
+
+# 预处理配置
+preprocessing:
+  enable: true
+  # 亮度对比度调整
+  brightness_contrast:
+    enable: true
+    clip_limit: 2.0
+    tile_size: [8, 8]
+  # 去噪处理
+  denoise:
+    enable: true
+    method: "bilateral"  # gaussian, median, bilateral
+    kernel_size: 5
+    sigma: 1.5
+  # 边缘增强
+  edge_enhancement:
+    enable: true
+    method: "sobel"  # sobel, laplacian
+    kernel_size: 3
+  # 二值化
+  binarization:
+    enable: false
+    method: "adaptive"  # adaptive, otsu
+    block_size: 11
+    c_value: 2
+  # 形态学处理
+  morphology:
+    enable: true
+    operation: "close"  # dilate, erode, open, close
+    kernel_size: [3, 3]
+
+# 文字检测配置
+detection:
+  engine: "paddleocr"  # paddleocr
+  paddleocr:
+    det_db_thresh: 0.3
+    det_db_box_thresh: 0.5
+    det_db_unclip_ratio: 1.6
+    max_side_len: 960
+    use_dilation: true
+
+# 文字识别配置
+recognition:
+  engine: "auto"  # paddleocr, easyocr, auto
+  paddleocr:
+    rec_algorithm: "SVTR_LCNet"
+    rec_batch_num: 6
+    rec_image_shape: [3, 48, 320]
+    max_text_length: 25
+    lang: "en"
+  easyocr:
+    lang_list: ["en"]
+    decoder: "beamsearch"
+    beam_width: 5
+    batch_size: 1
+    allowlist: "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+-×/. "
+    paragraph: false
+
+# 后处理配置
+postprocessing:
+  # 置信度过滤
+  min_confidence: 0.6
+  # 长度过滤
+  min_length: 1
+  max_length: 30
+  # 字符类型过滤
+  enable_char_filter: true
+  allowed_chars: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+-×/. "
+  # 相似字符纠正
+  enable_correction: true
+  correction_rules:
+    - ["O", "0"]  # O与0
+    - ["I", "1", "l"]  # I, 1, l
+    - ["S", "5"]  # S与5
+    - ["Z", "2"]  # Z与2
+    - ["B", "8"]  # B与8
+  # 结果去重
+  enable_deduplication: true
+  similarity_threshold: 0.9
+
+# 多角度融合配置
+multi_angle:
+  fusion_method: "voting"  # voting, weighted, smart, merge
+  min_images: 2
+  max_images: 10
+  alignment_method: "hybrid"  # position, content, semantic, hybrid
+  return_alternatives: true
+  alternative_threshold: 0.85
+
+# 系统配置
+system:
+  use_gpu: false
+  gpu_id: 0
+  num_workers: 4
+  log_level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  model_cache_dir: "./models"
+  temp_dir: "./temp"
+  output_dir: "./output"
+
+# 可视化配置
+visualization:
+  enable: true
+  draw_bbox: true
+  draw_text: true
+  draw_confidence: true
+  bbox_color: [0, 255, 0]  # BGR格式
+  text_color: [255, 0, 0]
+  font_scale: 0.6
+  thickness: 2
