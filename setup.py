@@ -17,14 +17,14 @@ if requirements_file.exists():
         requirements = [line.strip() for line in f if line.strip() and not line.startswith("#")]
 
 setup(
-    name="wheel-ocr",
+    name="PySmartPic",
     version="1.0.0",
     author="Your Name",
     author_email="your-email@example.com",
     description="汽车轮毂字母识别系统",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/yourusername/wheel-ocr",
+    url="https://github.com/z57700417/PySmartPic",
     packages=find_packages(),
     classifiers=[
         "Development Status :: 4 - Beta",
@@ -41,7 +41,7 @@ setup(
     install_requires=requirements,
     entry_points={
         "console_scripts": [
-            "wheel-ocr=cli:cli",
+            "pysmartpic=cli:cli",
         ],
     },
     include_package_data=True,
