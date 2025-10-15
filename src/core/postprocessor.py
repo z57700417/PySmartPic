@@ -88,7 +88,29 @@ class PostProcessor:
                 results = results + supplemented
             # 截断到min_results
             results = results[:self.min_results]
-            
+        
+        # 排序：优先 'AT' 前缀与长度符合的结果，其次按置信度
+        try:
+            for r in results:
+                t = str(r.get("text", ""))
+                conf = float(r.get("confidence", 0) or 0)
+                bonus = 0.0
+                if re.match(r"^AT[0-9]{3,}$", t):
+                    bonus += 2.0
+                elif t.startswith("AT"):
+                    bonus += 1.5
+                if 6 <= len(t) <= 8:
+                    bonus += 0.5
+                if t.isdigit():
+                    bonus += 0.5
+                r["_sort_score"] = conf + bonus
+            results = sorted(results, key=lambda x: x.get("_sort_score", x.get("confidence", 0)), reverse=True)
+            for r in results:
+                if "_sort_score" in r:
+                    del r["_sort_score"]
+        except Exception:
+            pass
+        
         # 统一类型：将文本转换为字符串
         for r in results:
             r["text"] = str(r.get("text", ""))
