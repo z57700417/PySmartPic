@@ -28,6 +28,7 @@ class PostProcessor:
         self.correction_rules = config.get("correction_rules", [])
         self.enable_deduplication = config.get("enable_deduplication", True)
         self.similarity_threshold = config.get("similarity_threshold", 0.9)
+        self.min_results = config.get("min_results", 0)
         
     def process(self, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
@@ -42,6 +43,7 @@ class PostProcessor:
         if not results:
             return []
             
+        orig_results = list(results)
         # 置信度过滤
         results = self._filter_by_confidence(results)
         
@@ -59,6 +61,37 @@ class PostProcessor:
         # 结果去重
         if self.enable_deduplication:
             results = self._deduplicate(results)
+            
+        # 若结果数不足，按置信度补足到最少条数
+        if self.min_results and len(results) < self.min_results:
+            supplemented = []
+            existing_texts = [str(r.get("text", "")) for r in results]
+            for item in sorted(orig_results, key=lambda x: x.get("confidence", 0), reverse=True):
+                txt = str(item.get("text", ""))
+                # 避免重复
+                if any(self._calculate_similarity(txt, et) >= self.similarity_threshold for et in existing_texts):
+                    continue
+                # 仅保留允许字符
+                allowed_set = set(self.allowed_chars) if self.allowed_chars else None
+                if allowed_set is not None:
+                    txt_clean = ''.join(c for c in txt if c in allowed_set)
+                else:
+                    txt_clean = txt
+                if len(txt_clean) >= 4:
+                    new_item = dict(item)
+                    new_item["text"] = txt_clean
+                    supplemented.append(new_item)
+                    existing_texts.append(txt_clean)
+                if len(results) + len(supplemented) >= self.min_results:
+                    break
+            if supplemented:
+                results = results + supplemented
+            # 截断到min_results
+            results = results[:self.min_results]
+            
+        # 统一类型：将文本转换为字符串
+        for r in results:
+            r["text"] = str(r.get("text", ""))
             
         return results
         
@@ -94,7 +127,7 @@ class PostProcessor:
         """
         filtered = []
         for result in results:
-            text = result.get("text", "")
+            text = str(result.get("text", ""))
             length = len(text.strip())
             if self.min_length <= length <= self.max_length:
                 filtered.append(result)
@@ -121,7 +154,7 @@ class PostProcessor:
         allowed_set = set(self.allowed_chars)
         
         for result in results:
-            text = result.get("text", "")
+            text = str(result.get("text", ""))
             # 检查是否所有字符都在允许列表中
             if all(c in allowed_set for c in text):
                 filtered.append(result)
@@ -149,7 +182,7 @@ class PostProcessor:
             纠正后的结果列表
         """
         for result in results:
-            text = result.get("text", "")
+            text = str(result.get("text", ""))
             original_text = text
             
             # 应用纠正规则
@@ -187,10 +220,31 @@ class PostProcessor:
         elif self._is_mostly_digits(text):
             corrected = corrected.replace('O', '0')
             corrected = corrected.replace('I', '1')
-            corrected = corrected.replace('S', '5')
-            corrected = corrected.replace('Z', '2')
-            corrected = corrected.replace('B', '8')
             
+        # 处理混合字母数字的常见混淆（上下文修正）
+        try:
+            if re.fullmatch(r'[A-Z0-9]{3,}', corrected):
+                chars = list(corrected)
+                for i, c in enumerate(chars):
+                    prev = chars[i-1] if i > 0 else ''
+                    nxt = chars[i+1] if i+1 < len(chars) else ''
+                    if prev.isdigit() and nxt.isdigit():
+                        if c == 'L':
+                            chars[i] = '4'
+                        elif c == 'I':
+                            chars[i] = '1'
+                        elif c == 'O':
+                            chars[i] = '0'
+                        elif c == 'B':
+                            chars[i] = '8'
+                        elif c == 'S':
+                            chars[i] = '5'
+                        elif c == 'Z':
+                            chars[i] = '2'
+                corrected = ''.join(chars)
+        except Exception:
+            pass
+        
         return corrected
         
     def _is_mostly_letters(self, text: str) -> bool:
@@ -224,7 +278,7 @@ class PostProcessor:
         seen_texts = set()
         
         for result in results:
-            text = result.get("text", "")
+            text = str(result.get("text", ""))
             
             # 检查是否已存在相似文本
             is_duplicate = False

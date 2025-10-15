@@ -6,8 +6,8 @@ preprocessing:
   # 亮度对比度调整
   brightness_contrast:
     enable: true
-    clip_limit: 2.0
-    tile_size: [8, 8]
+    clip_limit: 3.0
+    tile_size: [4, 4]
   # 去噪处理
   denoise:
     enable: true
@@ -17,12 +17,12 @@ preprocessing:
   # 边缘增强
   edge_enhancement:
     enable: true
-    method: "sobel"  # sobel, laplacian
+    method: "laplacian"  # sobel, laplacian
     kernel_size: 3
   # 二值化
   binarization:
     enable: false
-    method: "adaptive"  # adaptive, otsu
+    method: "otsu"  # adaptive, otsu
     block_size: 11
     c_value: 2
   # 形态学处理
@@ -35,15 +35,15 @@ preprocessing:
 detection:
   engine: "paddleocr"  # paddleocr
   paddleocr:
-    det_db_thresh: 0.3
-    det_db_box_thresh: 0.5
+    det_db_thresh: 0.2
+    det_db_box_thresh: 0.25
     det_db_unclip_ratio: 1.6
     max_side_len: 960
-    use_dilation: true
+    use_dilation: false
 
 # 文字识别配置
 recognition:
-  engine: "auto"  # paddleocr, easyocr, auto
+  engine: "paddleocr"  # paddleocr, easyocr, auto
   paddleocr:
     rec_algorithm: "SVTR_LCNet"
     rec_batch_num: 6
@@ -67,7 +67,7 @@ postprocessing:
   max_length: 30
   # 字符类型过滤
   enable_char_filter: true
-  allowed_chars: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+-×/. "
+  allowed_chars: "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
   # 相似字符纠正
   enable_correction: true
   correction_rules:
@@ -79,6 +79,7 @@ postprocessing:
   # 结果去重
   enable_deduplication: true
   similarity_threshold: 0.9
+  min_results: 4
 
 # 多角度融合配置
 multi_angle:

@@ -251,7 +251,7 @@ def output_table(result):
     table.add_column("置信度", style="green", width=10)
     
     for idx, item in enumerate(result.get("results", []), 1):
-        text = item.get("text", "")
+        text = str(item.get("text", ""))
         confidence = item.get("confidence", 0)
         table.add_row(str(idx), text, f"{confidence:.2%}")
         

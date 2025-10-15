@@ -35,7 +35,10 @@ class WheelRecognizer:
         # 初始化各个模块
         self.preprocessor = ImagePreprocessor(self.config["preprocessing"])
         self.detector = None
-        self.ocr_engine = None
+        self.ocr_engine = None  # legacy placeholder
+        self.paddle_engine = None
+        self.easy_engine = None
+        self.engine_name = None
         self.postprocessor = PostProcessor(self.config["postprocessing"])
         
         # 初始化识别引擎
@@ -45,10 +48,17 @@ class WheelRecognizer:
         """初始化识别引擎"""
         engine_type = self.config.get("recognition.engine", "auto")
         
-        if engine_type == "auto" or engine_type == "paddleocr":
+        if engine_type == "auto":
+            # 同时尝试初始化两个引擎
             self._init_paddleocr()
+            self._init_easyocr()
+            self.engine_name = "auto"
+        elif engine_type == "paddleocr":
+            self._init_paddleocr()
+            self.engine_name = "paddleocr"
         elif engine_type == "easyocr":
             self._init_easyocr()
+            self.engine_name = "easyocr"
         else:
             logger.error(f"不支持的识别引擎: {engine_type}")
             
@@ -60,7 +70,7 @@ class WheelRecognizer:
             use_gpu = self.config.get("system.use_gpu", False)
             lang = self.config.get("recognition.paddleocr.lang", "en")
             
-            self.ocr_engine = PaddleOCR(
+            self.paddle_engine = PaddleOCR(
                 use_angle_cls=True,
                 lang=lang,
                 use_gpu=use_gpu,
@@ -70,7 +80,6 @@ class WheelRecognizer:
             logger.info("PaddleOCR引擎初始化成功")
         except Exception as e:
             logger.error(f"PaddleOCR引擎初始化失败: {e}")
-            # 尝试初始化备用引擎
             self._init_easyocr()
             
     def _init_easyocr(self):
@@ -81,12 +90,12 @@ class WheelRecognizer:
             use_gpu = self.config.get("system.use_gpu", False)
             lang_list = self.config.get("recognition.easyocr.lang_list", ["en"])
             
-            self.ocr_engine = easyocr.Reader(lang_list, gpu=use_gpu)
+            self.easy_engine = easyocr.Reader(lang_list, gpu=use_gpu)
             self.engine_name = "easyocr"
             logger.info("EasyOCR引擎初始化成功")
         except Exception as e:
             logger.error(f"EasyOCR引擎初始化失败: {e}")
-            self.ocr_engine = None
+            self.easy_engine = None
             
     def recognize(self, image_path: Union[str, Path, np.ndarray]) -> Dict[str, Any]:
         """
@@ -120,6 +129,22 @@ class WheelRecognizer:
         
         # OCR识别
         raw_results = self._recognize_with_engine(preprocessed)
+
+        # 如果引擎未正确初始化，直接返回失败
+        no_engine = (
+            (self.engine_name == "paddleocr" and self.paddle_engine is None) or
+            (self.engine_name == "easyocr" and self.easy_engine is None) or
+            (self.engine_name == "auto" and self.paddle_engine is None and self.easy_engine is None)
+        )
+        if no_engine:
+            processing_time = time.time() - start_time
+            return {
+                "success": False,
+                "error": "OCR引擎未初始化或模型不可用",
+                "image_path": image_path_str,
+                "processing_time": processing_time,
+                "engine_used": self.engine_name or "none"
+            }
         
         # 后处理
         final_results = self.postprocessor.process(raw_results)
@@ -134,7 +159,7 @@ class WheelRecognizer:
             "total_texts": len(final_results),
             "results": final_results,
             "processing_time": processing_time,
-            "engine_used": self.engine_name
+            "engine_used": self.engine_name or "unknown"
         }
         
     def _load_image(self, image_path: Union[str, Path]) -> Optional[np.ndarray]:
@@ -174,14 +199,23 @@ class WheelRecognizer:
         Returns:
             识别结果列表
         """
-        if self.ocr_engine is None:
-            logger.error("OCR引擎未初始化")
-            return []
-            
         if self.engine_name == "paddleocr":
+            if self.paddle_engine is None:
+                logger.error("PaddleOCR引擎未初始化")
+                return []
             return self._recognize_paddleocr(image)
         elif self.engine_name == "easyocr":
+            if self.easy_engine is None:
+                logger.error("EasyOCR引擎未初始化")
+                return []
             return self._recognize_easyocr(image)
+        elif self.engine_name == "auto":
+            combined = []
+            if self.paddle_engine is not None:
+                combined.extend(self._recognize_paddleocr(image))
+            if self.easy_engine is not None:
+                combined.extend(self._recognize_easyocr(image))
+            return combined
         else:
             return []
             
@@ -196,24 +230,40 @@ class WheelRecognizer:
             识别结果列表
         """
         try:
-            result = self.ocr_engine.ocr(image, cls=True)
+            result = self.paddle_engine.ocr(image, cls=True)
             
             if result is None or len(result) == 0 or result[0] is None:
                 logger.warning("PaddleOCR未识别到文字")
                 return []
                 
             results = []
-            for line in result[0]:
-                bbox = line[0]
-                text = line[1][0]
-                confidence = line[1][1]
-                
-                results.append({
-                    "text": text,
-                    "confidence": confidence,
-                    "bbox": bbox,
-                    "orientation": "horizontal"
-                })
+            lines = result if isinstance(result, list) else []
+            for line in lines:
+                try:
+                    bbox = line[0]
+                    # PaddleOCR: line[1] == (text, confidence)
+                    if isinstance(line[1], (list, tuple)) and len(line[1]) >= 2:
+                        text = line[1][0]
+                        confidence = float(line[1][1])
+                    elif len(line) >= 3:
+                        text = str(line[1])
+                        confidence = float(line[2])
+                    else:
+                        text = str(line[1])
+                        confidence = 0.0
+                    # 置信度归一化到[0,1]
+                    if confidence < 0:
+                        confidence = 0.0
+                    if confidence > 1:
+                        confidence = 1.0
+                    results.append({
+                        "text": text,
+                        "confidence": confidence,
+                        "bbox": bbox,
+                        "orientation": "horizontal"
+                    })
+                except Exception as ex:
+                    logger.debug(f"解析PaddleOCR结果行失败: {ex}")
                 
             logger.info(f"PaddleOCR识别到 {len(results)} 个文字区域")
             return results
@@ -235,7 +285,7 @@ class WheelRecognizer:
         try:
             allowlist = self.config.get("recognition.easyocr.allowlist", None)
             
-            result = self.ocr_engine.readtext(
+            result = self.easy_engine.readtext(
                 image,
                 allowlist=allowlist,
                 paragraph=False
