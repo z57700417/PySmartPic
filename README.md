@@ -1,77 +1,69 @@
-# 汽车轮毂字母识别系统
-
-[English README](README_EN.md)
+# 汽车轮毂字母识别系统 / Wheel Hub OCR System
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![PaddleOCR](https://img.shields.io/badge/PaddleOCR-2.7.0-green.svg)](https://github.com/PaddlePaddle/PaddleOCR)
 
+[English](#english) | [中文](#chinese)
+
+---
+
+<a name="chinese"></a>
+# 中文文档
+
+## 📖 简介
+
 一个基于深度学习的汽车轮毂字母识别系统,专门用于识别手机拍摄的汽车轮毂照片中的字母和文字信息。
 
-> 📅 **最后更新**: 2025-10-15
+### ✨ 核心特性
 
-## ✨ 特性
-
-- 🎯 **高准确率** - 基于PaddleOCR和EasyOCR双引擎,识别准确率高
-- 🚀 **高性能** - 支持GPU加速,批量处理效率高
+- 🎯 **高准确率** - 基于 PaddleOCR 和 EasyOCR 双引擎,识别准确率高
+- 🚀 **高性能** - 支持 GPU 加速,批量处理效率高
 - 🔄 **多角度融合** - 支持多张图片融合识别,提升准确率
+- 📊 **按行分组** - 自动将识别结果按行分组返回,结构化输出
 - 🎨 **结果可视化** - 自动标注识别结果,直观展示
-- 🛠️ **灵活配置** - YAML配置文件,参数可调
-- 📦 **多种部署** - 命令行工具、Web API服务
-
-### 📊 项目完成度
-
-| 模块 | 状态 | 说明 |
-|------|------|------|
-| 配置管理 | ✅ | YAML配置、嵌套键访问 |
-| 图像预处理 | ✅ | 亮度调整、去噪、边缘增强等 |
-| 文字检测 | ✅ | PaddleOCR检测器 |
-| 文字识别 | ✅ | PaddleOCR + EasyOCR双引擎 |
-| 后处理 | ✅ | 过滤、纠正、去重 |
-| 单图识别 | ✅ | 完整的识别流程 |
-| 批量识别 | ✅ | 并行处理支持 |
-| 多角度融合 | ✅ | 4种融合算法 |
-| 结果可视化 | ✅ | 边界框标注 |
-| 命令行工具 | ✅ | CLI完整实现 |
-| Web API | ✅ | RESTful API |
-| 文档 | ✅ | 完整的使用指南 |
-| 测试 | ✅ | 单元测试 |
-
-## 📋 系统要求
-
-- Python 3.8+
-- Windows / Linux / macOS
-- (可选) NVIDIA GPU + CUDA 用于GPU加速
+- 🔧 **智能纠错** - 自动纠正常见字符混淆(如 2↔3, 6↔4)
+- 🛠️ **灵活配置** - YAML 配置文件,参数可调
+- 🌐 **多种部署** - 命令行工具、Web API、网页界面
 
 ## 🚀 快速开始
 
 ### 1. 安装依赖
 
 ```bash
-# 克隆项目
-git clone <repository_url>
-cd pyPic
-
-# 安装依赖
 pip install -r requirements.txt
 ```
 
-### 2. 基本使用
+### 2. 使用方法
 
-#### 命令行识别
+#### 方法 1: Web 界面 (推荐) 🌐
 
 ```bash
-# 识别单张图片
-python cli.py recognize wheel.jpg
+# 启动 API 服务
+python api.py
 
-# 批量识别
-python cli.py batch ./images/
-
-# 多角度融合识别
-python cli.py multi-angle img1.jpg img2.jpg img3.jpg --fusion-method voting
+# 在浏览器中打开 web_demo.html
 ```
 
-#### Python API
+**功能:**
+- 上传 1 张图片 → 自动单图识别
+- 上传多张图片 → 自动多角度融合识别
+- 支持拖拽上传、图像增强、结果可视化
+
+#### 方法 2: 命令行工具 💻
+
+```bash
+# 单图识别
+python cli.py recognize wheel.jpg -v
+
+# 批量识别
+python cli.py batch ./images/ -v
+
+# 多角度融合
+python cli.py multi-angle img1.jpg img2.jpg img3.jpg -m voting
+```
+
+#### 方法 3: Python API 🐍
 
 ```python
 from src.core.recognizer import WheelRecognizer
@@ -82,181 +74,415 @@ recognizer = WheelRecognizer()
 # 识别图片
 result = recognizer.recognize("wheel.jpg")
 
-# 打印结果
-for item in result["results"]:
-    print(f"文字: {item['text']}, 置信度: {item['confidence']:.2%}")
+# 查看按行分组的结果
+for i, line in enumerate(result['lines'], 1):
+    print(f"第{i}行: {line['text']} (置信度: {line['confidence']:.2%})")
 ```
 
-#### Web API服务
+## 📊 识别结果格式
+
+### 单图识别
+
+```json
+{
+  "success": true,
+  "total_texts": 3,
+  "total_lines": 2,
+  "lines": [
+    {
+      "text": "AT64202",
+      "confidence": 0.92,
+      "item_count": 1
+    },
+    {
+      "text": "0909 W1D",
+      "confidence": 0.88,
+      "item_count": 2
+    }
+  ],
+  "processing_time": 1.23
+}
+```
+
+### 多角度融合
+
+```json
+{
+  "success": true,
+  "total_lines": 2,
+  "lines": [
+    {
+      "text": "AT64202",
+      "confidence": 0.93,
+      "occurrence_count": 3
+    },
+    {
+      "text": "0909 W1D",
+      "confidence": 0.89,
+      "occurrence_count": 2
+    }
+  ],
+  "fusion_method": "voting"
+}
+```
+
+## 🔧 常见问题解决
+
+### 问题 1: 图片识别不出来
+
+**解决方案:**
+
+1. **使用图像增强** (推荐)
+```bash
+python enhance_recognition.py your_image.jpg
+```
+
+2. **启用 Web 界面的图像增强选项**
+- 勾选 "启用图像增强"
+- 选择放大倍数: 3倍或4倍
+
+3. **调整配置参数**
+```bash
+python cli.py recognize image.jpg -c config/enhanced_config.yaml
+```
+
+### 问题 2: 字符识别错误 (如 AT64703 → AT64202)
+
+**解决方案:**
 
 ```bash
-# 启动服务
+# 使用纠正脚本
+python correct_recognition.py your_image.jpg
+```
+
+系统会自动:
+- 纠正常见混淆 (2↔3, 6↔4, 0↔O)
+- 基于轮毂编号模式验证
+- 提供多个候选结果
+
+## 🌐 API 接口
+
+### 启动服务
+
+```bash
 python api.py
-
-# 访问 http://localhost:5000
-# API文档: http://localhost:5000/api/health
+# 服务运行在 http://localhost:5000
 ```
 
-## 📖 详细文档
+### 接口列表
 
-### 命令行工具
-
-#### 单图识别
-
+#### 1. 单图识别
 ```bash
-python cli.py recognize <图片路径> [选项]
-
-选项:
-  -c, --config PATH       配置文件路径
-  -e, --engine TEXT       识别引擎 (auto/paddleocr/easyocr)
-  -o, --output PATH       结果输出路径
-  -v, --visualize         生成可视化图片
-  --confidence FLOAT      置信度阈值 (默认: 0.6)
-  -f, --format TEXT       输出格式 (json/text/table)
-  -g, --gpu              使用GPU加速
-  --verbose              详细输出
-```
-
-#### 批量识别
-
-```bash
-python cli.py batch <图片目录> [选项]
-
-选项:
-  -c, --config PATH       配置文件路径
-  -e, --engine TEXT       识别引擎
-  -o, --output PATH       结果输出路径
-  -p, --pattern TEXT      文件匹配模式 (默认: *.jpg)
-  --parallel             并行处理
-  -g, --gpu              使用GPU加速
-```
-
-#### 多角度融合识别
-
-```bash
-python cli.py multi-angle <图片1> <图片2> ... [选项]
-
-选项:
-  -c, --config PATH       配置文件路径
-  -m, --fusion-method     融合方法 (voting/weighted/smart/merge)
-  -o, --output PATH       结果输出路径
-  -a, --show-alternatives 显示备选结果
-  -g, --gpu              使用GPU加速
-```
-
-### Web API接口
-
-#### 1. 健康检查
-
-```http
-GET /api/health
-```
-
-#### 2. 识别单张图片
-
-```http
 POST /api/recognize
-Content-Type: multipart/form-data
-
 参数:
-- image: 图片文件 (必需)
-- engine: 识别引擎 (可选, 默认: auto)
-- visualize: 是否返回可视化图片 (可选, 默认: false)
-- confidence_threshold: 置信度阈值 (可选, 默认: 0.6)
+- image: 图片文件
+- enhance: 启用图像增强 (true/false)
+- scale_factor: 放大倍数 (2.0-4.0)
+- confidence_threshold: 置信度阈值 (0-1)
 ```
 
-#### 3. 批量识别
-
-```http
-POST /api/recognize/batch
-Content-Type: multipart/form-data
-
-参数:
-- images: 多个图片文件 (必需)
-- engine: 识别引擎 (可选)
-- parallel: 是否并行处理 (可选, 默认: true)
-- confidence_threshold: 置信度阈值 (可选)
-```
-
-#### 4. 多角度融合识别
-
-```http
+#### 2. 多角度融合
+```bash
 POST /api/recognize/multi-angle
-Content-Type: multipart/form-data
-
 参数:
-- images: 多个图片文件 (必需, 至少2张)
-- engine: 识别引擎 (可选)
-- fusion_method: 融合方法 (可选, 默认: voting)
-- visualize: 是否返回可视化图片 (可选)
-- confidence_threshold: 置信度阈值 (可选)
-- return_alternatives: 是否返回备选结果 (可选, 默认: true)
+- images: 多个图片文件
+- fusion_method: 融合方法 (voting/weighted/smart/merge)
 ```
 
-### 配置文件
+### JavaScript 调用示例
 
-配置文件位于 `config/default_config.yaml`,可以自定义以下参数:
+```javascript
+const formData = new FormData();
+formData.append('image', fileInput.files[0]);
+formData.append('enhance', 'true');
+formData.append('scale_factor', '3.0');
 
-```yaml
-# 预处理配置
-preprocessing:
-  enable: true
-  brightness_contrast:
-    enable: true
-    clip_limit: 2.0
-  denoise:
-    enable: true
-    method: "bilateral"
-  # ...更多配置
-
-# 识别配置
-recognition:
-  engine: "auto"
-  paddleocr:
-    lang: "en"
-  # ...更多配置
-
-# 后处理配置
-postprocessing:
-  min_confidence: 0.6
-  enable_correction: true
-  # ...更多配置
+fetch('http://localhost:5000/api/recognize', {
+    method: 'POST',
+    body: formData
+})
+.then(response => response.json())
+.then(data => {
+    // 处理按行分组的结果
+    data.lines.forEach(line => {
+        console.log(`${line.text} - ${line.confidence}`);
+    });
+});
 ```
 
-## 🔧 技术栈
+## 📸 拍摄建议
 
-- **深度学习框架**: PaddlePaddle, PyTorch
-- **OCR引擎**: PaddleOCR, EasyOCR
-- **图像处理**: OpenCV, Pillow
-- **Web框架**: Flask
-- **命令行工具**: Click, Rich
+### ✅ 推荐做法
+- 充足光线,避免阴影
+- 正面拍摄,减少角度倾斜
+- 靠近拍摄,让文字占据较大画面
+- 多拍几张不同角度(用于融合识别)
 
-## 📊 性能指标
+### ❌ 避免做法
+- 逆光拍摄
+- 距离太远
+- 手抖模糊
+- 强烈反光
 
-| 指标 | 目标值 | 说明 |
-|------|--------|------|
-| 字符识别准确率 | ≥ 90% | 正确识别字符数 / 总字符数 |
-| 端到端识别准确率 | ≥ 85% | 完全正确的识别结果 / 总样本数 |
-| 平均处理时间 (GPU) | ≤ 1秒/张 | 单张图片处理时间 |
-| 平均处理时间 (CPU) | ≤ 3秒/张 | 单张图片处理时间 |
+## 📚 工具脚本
 
-## 🤝 贡献
+| 脚本 | 功能 | 使用场景 |
+|------|------|---------|
+| `enhance_recognition.py` | 图像增强识别 | 模糊、小文字、低对比度图片 |
+| `correct_recognition.py` | 智能纠错识别 | 字符识别错误纠正 |
+| `test_line_grouping.py` | 测试行分组 | 验证行分组功能 |
+| `test_multi_angle_lines.py` | 测试多角度融合 | 验证融合识别功能 |
 
-欢迎提交Issue和Pull Request!
+## 🛠️ 配置文件
+
+- `config/default_config.yaml` - 默认配置
+- `config/enhanced_config.yaml` - 增强识别配置(针对困难图片)
 
 ## 📝 许可证
 
 MIT License
 
-## 📚 文档导航
+---
 
-- 🚀 [**快速开始**](QUICKSTART.md) - 5分钟上手指南
-- 📝 [**项目结构**](PROJECT_STRUCTURE.md) - 详细的项目结构说明
-- 🛠️ [**安装指南**](docs/installation.md) - 完整的安装教程
-- 📊 [**项目总结**](PROJECT_SUMMARY.md) - 项目完成情况总结
-- 📖 [**更新日志**](CHANGELOG.md) - 版本更新记录
-- 💻 [**示例代码**](examples.py) - 丰富的使用示例
+<a name="english"></a>
+# English Documentation
+
+## 📖 Introduction
+
+A deep learning-based wheel hub character recognition system designed for recognizing text and characters in mobile-captured wheel hub photos.
+
+### ✨ Key Features
+
+- 🎯 **High Accuracy** - Dual-engine (PaddleOCR + EasyOCR) for high recognition rates
+- 🚀 **High Performance** - GPU acceleration, efficient batch processing
+- 🔄 **Multi-Angle Fusion** - Fuse multiple images for improved accuracy
+- 📊 **Line Grouping** - Automatically group results by lines, structured output
+- 🎨 **Result Visualization** - Automatic annotation and display
+- 🔧 **Smart Correction** - Auto-correct common character confusions (2↔3, 6↔4)
+- 🛠️ **Flexible Configuration** - YAML config files, adjustable parameters
+- 🌐 **Multiple Deployment** - CLI, Web API, Web UI
+
+## 🚀 Quick Start
+
+### 1. Install Dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+### 2. Usage
+
+#### Method 1: Web Interface (Recommended) 🌐
+
+```bash
+# Start API service
+python api.py
+
+# Open web_demo.html in browser
+```
+
+**Features:**
+- Upload 1 image → Auto single image recognition
+- Upload multiple images → Auto multi-angle fusion
+- Drag & drop, image enhancement, visualization
+
+#### Method 2: Command Line 💻
+
+```bash
+# Single image
+python cli.py recognize wheel.jpg -v
+
+# Batch processing
+python cli.py batch ./images/ -v
+
+# Multi-angle fusion
+python cli.py multi-angle img1.jpg img2.jpg img3.jpg -m voting
+```
+
+#### Method 3: Python API 🐍
+
+```python
+from src.core.recognizer import WheelRecognizer
+
+# Create recognizer
+recognizer = WheelRecognizer()
+
+# Recognize image
+result = recognizer.recognize("wheel.jpg")
+
+# View line-grouped results
+for i, line in enumerate(result['lines'], 1):
+    print(f"Line {i}: {line['text']} (Confidence: {line['confidence']:.2%})")
+```
+
+## 📊 Response Format
+
+### Single Image Recognition
+
+```json
+{
+  "success": true,
+  "total_texts": 3,
+  "total_lines": 2,
+  "lines": [
+    {
+      "text": "AT64202",
+      "confidence": 0.92,
+      "item_count": 1
+    },
+    {
+      "text": "0909 W1D",
+      "confidence": 0.88,
+      "item_count": 2
+    }
+  ],
+  "processing_time": 1.23
+}
+```
+
+### Multi-Angle Fusion
+
+```json
+{
+  "success": true,
+  "total_lines": 2,
+  "lines": [
+    {
+      "text": "AT64202",
+      "confidence": 0.93,
+      "occurrence_count": 3
+    },
+    {
+      "text": "0909 W1D",
+      "confidence": 0.89,
+      "occurrence_count": 2
+    }
+  ],
+  "fusion_method": "voting"
+}
+```
+
+## 🔧 Troubleshooting
+
+### Issue 1: Cannot Recognize Image
+
+**Solutions:**
+
+1. **Use Image Enhancement** (Recommended)
+```bash
+python enhance_recognition.py your_image.jpg
+```
+
+2. **Enable Enhancement in Web UI**
+- Check "Enable Image Enhancement"
+- Select scale factor: 3x or 4x
+
+3. **Use Enhanced Config**
+```bash
+python cli.py recognize image.jpg -c config/enhanced_config.yaml
+```
+
+### Issue 2: Character Misrecognition (e.g., AT64703 → AT64202)
+
+**Solution:**
+
+```bash
+# Use correction script
+python correct_recognition.py your_image.jpg
+```
+
+System will automatically:
+- Correct common confusions (2↔3, 6↔4, 0↔O)
+- Validate with wheel code patterns
+- Provide alternative candidates
+
+## 🌐 API Reference
+
+### Start Service
+
+```bash
+python api.py
+# Service runs on http://localhost:5000
+```
+
+### Endpoints
+
+#### 1. Single Image Recognition
+```bash
+POST /api/recognize
+Parameters:
+- image: Image file
+- enhance: Enable enhancement (true/false)
+- scale_factor: Scale factor (2.0-4.0)
+- confidence_threshold: Confidence threshold (0-1)
+```
+
+#### 2. Multi-Angle Fusion
+```bash
+POST /api/recognize/multi-angle
+Parameters:
+- images: Multiple image files
+- fusion_method: Fusion method (voting/weighted/smart/merge)
+```
+
+### JavaScript Example
+
+```javascript
+const formData = new FormData();
+formData.append('image', fileInput.files[0]);
+formData.append('enhance', 'true');
+formData.append('scale_factor', '3.0');
+
+fetch('http://localhost:5000/api/recognize', {
+    method: 'POST',
+    body: formData
+})
+.then(response => response.json())
+.then(data => {
+    // Process line-grouped results
+    data.lines.forEach(line => {
+        console.log(`${line.text} - ${line.confidence}`);
+    });
+});
+```
+
+## 📸 Photography Tips
+
+### ✅ Best Practices
+- Adequate lighting, avoid shadows
+- Front-facing angle, minimize distortion
+- Close-up shots, make text fill frame
+- Multiple angles (for fusion recognition)
+
+### ❌ Avoid
+- Backlit photos
+- Too far distance
+- Motion blur
+- Strong reflections
+
+## 📚 Utility Scripts
+
+| Script | Function | Use Case |
+|--------|----------|----------|
+| `enhance_recognition.py` | Enhanced recognition | Blurry, small text, low contrast |
+| `correct_recognition.py` | Smart correction | Character misrecognition |
+| `test_line_grouping.py` | Test line grouping | Validate grouping feature |
+| `test_multi_angle_lines.py` | Test fusion | Validate fusion feature |
+
+## 🛠️ Configuration
+
+- `config/default_config.yaml` - Default config
+- `config/enhanced_config.yaml` - Enhanced config (for difficult images)
+
+## 📝 License
+
+MIT License
 
 ---
 
-**注意**: 首次运行时会自动下载OCR模型,请确保网络连接正常。
+## 🔗 Quick Links
+
+- 📖 [Full Documentation](DIFFICULT_IMAGE_GUIDE.md)
+- 🐛 [Report Issues](https://github.com/your-repo/issues)
+- 💬 [Discussions](https://github.com/your-repo/discussions)
+

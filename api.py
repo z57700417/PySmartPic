@@ -15,6 +15,8 @@ from loguru import logger
 from src.core.config import Config
 from src.core.recognizer import WheelRecognizer
 from src.core.multi_angle_fusion import MultiAngleFusion
+import cv2
+import numpy as np
 
 
 # 创建Flask应用
@@ -58,6 +60,51 @@ def health_check():
     })
 
 
+def enhance_image_for_ocr(image_path, scale_factor=3.0):
+    """增强图像用于OCR识别"""
+    image = cv2.imread(image_path)
+    if image is None:
+        return None
+    
+    # 放大图像
+    if scale_factor > 1.0:
+        new_width = int(image.shape[1] * scale_factor)
+        new_height = int(image.shape[0] * scale_factor)
+        image = cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_CUBIC)
+    
+    # 转灰度
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    
+    # 去除光照不均
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 15))
+    tophat = cv2.morphologyEx(gray, cv2.MORPH_TOPHAT, kernel)
+    blackhat = cv2.morphologyEx(gray, cv2.MORPH_BLACKHAT, kernel)
+    gray = cv2.add(gray, tophat)
+    gray = cv2.subtract(gray, blackhat)
+    
+    # CLAHE增强对比度
+    clahe = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(4, 4))
+    gray = clahe.apply(gray)
+    
+    # 双边滤波去噪
+    gray = cv2.bilateralFilter(gray, 9, 75, 75)
+    
+    # 锐化
+    kernel_sharpen = np.array([[-1, -1, -1], [-1, 9, -1], [-1, -1, -1]])
+    gray = cv2.filter2D(gray, -1, kernel_sharpen)
+    
+    # 自适应阈值
+    binary = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 15, 3)
+    
+    # 形态学闭运算
+    kernel_morph = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
+    binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel_morph)
+    
+    # 转回BGR
+    result = cv2.cvtColor(binary, cv2.COLOR_GRAY2BGR)
+    return result
+
+
 @app.route('/api/recognize', methods=['POST'])
 def recognize():
     """识别单张图片"""
@@ -90,6 +137,8 @@ def recognize():
         engine = request.form.get('engine', 'auto')
         visualize = request.form.get('visualize', 'false').lower() == 'true'
         confidence_threshold = float(request.form.get('confidence_threshold', '0.6'))
+        enhance = request.form.get('enhance', 'false').lower() == 'true'  # 是否启用增强
+        scale_factor = float(request.form.get('scale_factor', '3.0'))  # 放大倍数
         
         # 保存临时文件
         temp_dir = tempfile.gettempdir()
@@ -97,12 +146,33 @@ def recognize():
         temp_path = os.path.join(temp_dir, temp_filename)
         file.save(temp_path)
         
+        # 图像增强处理
+        if enhance:
+            enhanced_image = enhance_image_for_ocr(temp_path, scale_factor)
+            if enhanced_image is not None:
+                enhanced_path = os.path.join(temp_dir, f"enhanced_{temp_filename}")
+                cv2.imwrite(enhanced_path, enhanced_image)
+                temp_path = enhanced_path
+                logger.info(f"应用图像增强处理 (放大{scale_factor}x)")
+        
         # 更新配置
         config.set("recognition.engine", engine)
         config.set("postprocessing.min_confidence", confidence_threshold)
         
+        # 如果启用增强,使用更宽松的检测参数
+        if enhance:
+            config.set("detection.paddleocr.det_db_thresh", 0.1)
+            config.set("detection.paddleocr.det_db_box_thresh", 0.2)
+            config.set("detection.paddleocr.det_db_unclip_ratio", 2.0)
+            config.set("preprocessing.enable", False)  # 已手动处理
+        
         # 执行识别
         result = recognizer.recognize(temp_path)
+        
+        # 添加增强信息到结果
+        if enhance:
+            result["enhanced"] = True
+            result["scale_factor"] = scale_factor
         
         # 可视化
         visualization_path = None

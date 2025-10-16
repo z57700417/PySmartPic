@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>轮毂字母识别</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Microsoft YaHei', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 32px;
+            margin-bottom: 10px;
+        }
+
+        .content {
+            padding: 40px;
+        }
+
+        .upload-area {
+            border: 3px dashed #667eea;
+            border-radius: 15px;
+            padding: 40px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-bottom: 20px;
+        }
+
+        .upload-area:hover {
+            background: #f5f7ff;
+            border-color: #764ba2;
+        }
+
+        .upload-area.drag-over {
+            background: #e8ebff;
+            border-color: #764ba2;
+        }
+
+        .upload-icon {
+            font-size: 48px;
+            margin-bottom: 15px;
+        }
+
+        .file-input {
+            display: none;
+        }
+
+        .preview-area {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-bottom: 20px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .preview-item {
+            position: relative;
+            width: 150px;
+            height: 150px;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 3px 10px rgba(0, 0, 0, 0.2);
+        }
+
+        .preview-item img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .preview-item .remove-btn {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            background: rgba(255, 0, 0, 0.8);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 25px;
+            height: 25px;
+            cursor: pointer;
+        }
+
+        .options {
+            background: #f5f7ff;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+
+        .option-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+
+        .option-group label {
+            display: block;
+            margin-bottom: 5px;
+            color: #333;
+            font-weight: bold;
+        }
+
+        .option-group select,
+        .option-group input[type="number"] {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+        }
+
+        .option-group input[type="checkbox"] {
+            margin-right: 8px;
+        }
+
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 40px;
+            border-radius: 8px;
+            font-size: 18px;
+            cursor: pointer;
+            transition: all 0.3s;
+            width: 100%;
+        }
+
+        .btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .loading.show {
+            display: block;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .result-area {
+            display: none;
+            background: #f9f9f9;
+            border-radius: 10px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+
+        .result-area.show {
+            display: block;
+        }
+
+        .result-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+
+        .result-success {
+            color: #4caf50;
+            font-weight: bold;
+        }
+
+        .result-error {
+            color: #f44336;
+            font-weight: bold;
+        }
+
+        .result-item {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            border-left: 4px solid #667eea;
+        }
+
+        .result-text {
+            font-size: 24px;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 8px;
+        }
+
+        .result-confidence {
+            color: #666;
+            font-size: 14px;
+        }
+
+        .mode-badge {
+            display: inline-block;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: bold;
+        }
+
+        .mode-single {
+            background: #e3f2fd;
+            color: #1976d2;
+        }
+
+        .mode-multi {
+            background: #f3e5f5;
+            color: #7b1fa2;
+        }
+
+        .api-status {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 10px 20px;
+            border-radius: 20px;
+            font-size: 14px;
+            z-index: 1000;
+        }
+
+        .api-status.online {
+            background: #4caf50;
+            color: white;
+        }
+
+        .api-status.offline {
+            background: #f44336;
+            color: white;
+        }
+
+        .info-box {
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+
+        .info-box p {
+            margin: 5px 0;
+            color: #856404;
+        }
+    </style>
+</head>
+<body>
+    <div class="api-status" id="apiStatus">检查中...</div>
+
+    <div class="container">
+        <div class="header">
+            <h1>🚗 轮毂字母识别系统</h1>
+            <p>上传1张或多张图片，自动智能识别</p>
+        </div>
+
+        <div class="content">
+            <div class="info-box">
+                <p><strong>💡 使用提示:</strong></p>
+                <p>• 上传 <strong>1张图片</strong> → 单图识别</p>
+                <p>• 上传 <strong>多张图片</strong> (同一轮毂不同角度) → 多角度融合识别，准确率更高</p>
+                <p>• 建议勾选"启用图像增强"以提高小文字、模糊图片的识别率</p>
+            </div>
+
+            <div class="upload-area" id="uploadArea" onclick="document.getElementById('fileInput').click()">
+                <div class="upload-icon">📁</div>
+                <h3>点击或拖拽上传图片</h3>
+                <p>可以选择多张图片 (支持 JPG, PNG, BMP 等格式)</p>
+                <input type="file" id="fileInput" class="file-input" accept="image/*" multiple onchange="handleFiles(this.files)">
+            </div>
+
+            <div class="preview-area" id="previewArea"></div>
+
+            <div class="options">
+                <div class="option-row">
+                    <div class="option-group">
+                        <label>识别引擎</label>
+                        <select id="engine">
+                            <option value="auto">自动选择</option>
+                            <option value="paddleocr">PaddleOCR</option>
+                            <option value="easyocr">EasyOCR</option>
+                        </select>
+                    </div>
+                    <div class="option-group">
+                        <label>置信度阈值</label>
+                        <input type="number" id="confidence" value="0.6" min="0" max="1" step="0.1">
+                    </div>
+                </div>
+
+                <div class="option-row">
+                    <div class="option-group">
+                        <label>
+                            <input type="checkbox" id="enhance" checked>
+                            🔥 启用图像增强 (推荐,针对模糊/小文字)
+                        </label>
+                    </div>
+                    <div class="option-group">
+                        <label>图像放大倍数</label>
+                        <select id="scaleFactor">
+                            <option value="2.0">2倍</option>
+                            <option value="3.0" selected>3倍 (推荐)</option>
+                            <option value="4.0">4倍</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="option-group">
+                    <label>
+                        <input type="checkbox" id="visualize">
+                        生成可视化结果图片
+                    </label>
+                </div>
+            </div>
+
+            <button class="btn" id="recognizeBtn" onclick="startRecognition()" disabled>
+                开始识别
+            </button>
+
+            <div class="loading" id="loading">
+                <div class="spinner"></div>
+                <p id="loadingText">正在识别中，请稍候...</p>
+            </div>
+
+            <div class="result-area" id="resultArea"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:5000';
+        let selectedFiles = [];
+
+        // 检查 API 状态
+        async function checkApiStatus() {
+            try {
+                const response = await fetch(`${API_BASE}/api/health`);
+                const data = await response.json();
+                const statusEl = document.getElementById('apiStatus');
+                if (data.status === 'healthy') {
+                    statusEl.textContent = '✅ API 在线';
+                    statusEl.className = 'api-status online';
+                } else {
+                    throw new Error('API 不健康');
+                }
+            } catch (error) {
+                const statusEl = document.getElementById('apiStatus');
+                statusEl.textContent = '❌ API 离线';
+                statusEl.className = 'api-status offline';
+            }
+        }
+
+        checkApiStatus();
+        setInterval(checkApiStatus, 30000);
+
+        // 处理文件选择
+        function handleFiles(files) {
+            if (!files || files.length === 0) return;
+
+            selectedFiles = Array.from(files);
+            displayPreview();
+            document.getElementById('recognizeBtn').disabled = false;
+        }
+
+        // 显示预览
+        function displayPreview() {
+            const container = document.getElementById('previewArea');
+            container.innerHTML = '';
+
+            selectedFiles.forEach((file, index) => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const div = document.createElement('div');
+                    div.className = 'preview-item';
+                    div.innerHTML = `
+                        <img src="${e.target.result}" alt="预览">
+                        <button class="remove-btn" onclick="removeFile(${index})">×</button>
+                    `;
+                    container.appendChild(div);
+                };
+                reader.readAsDataURL(file);
+            });
+        }
+
+        // 移除文件
+        function removeFile(index) {
+            selectedFiles.splice(index, 1);
+            displayPreview();
+            if (selectedFiles.length === 0) {
+                document.getElementById('recognizeBtn').disabled = true;
+            }
+        }
+
+        // 开始识别
+        async function startRecognition() {
+            const loading = document.getElementById('loading');
+            const result = document.getElementById('resultArea');
+            const loadingText = document.getElementById('loadingText');
+
+            loading.classList.add('show');
+            result.classList.remove('show');
+
+            const isSingleImage = selectedFiles.length === 1;
+            const isMultiAngle = selectedFiles.length > 1;
+
+            if (isSingleImage) {
+                loadingText.textContent = '正在识别单张图片...';
+                await recognizeSingle();
+            } else if (isMultiAngle) {
+                loadingText.textContent = `正在进行多角度融合识别 (${selectedFiles.length}张图片)...`;
+                await recognizeMultiAngle();
+            }
+
+            loading.classList.remove('show');
+        }
+
+        // 单图识别
+        async function recognizeSingle() {
+            const formData = new FormData();
+            formData.append('image', selectedFiles[0]);
+            formData.append('engine', document.getElementById('engine').value);
+            formData.append('confidence_threshold', document.getElementById('confidence').value);
+            formData.append('visualize', document.getElementById('visualize').checked);
+            formData.append('enhance', document.getElementById('enhance').checked);
+            formData.append('scale_factor', document.getElementById('scaleFactor').value);
+
+            try {
+                const response = await fetch(`${API_BASE}/api/recognize`, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+                displayResult(data, 'single');
+            } catch (error) {
+                displayError(error.message);
+            }
+        }
+
+        // 多角度识别
+        async function recognizeMultiAngle() {
+            const formData = new FormData();
+            selectedFiles.forEach(file => {
+                formData.append('images', file);
+            });
+            formData.append('engine', document.getElementById('engine').value);
+            formData.append('fusion_method', 'voting');
+            formData.append('return_alternatives', 'true');
+
+            try {
+                const response = await fetch(`${API_BASE}/api/recognize/multi-angle`, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+                displayResult(data, 'multi');
+            } catch (error) {
+                displayError(error.message);
+            }
+        }
+
+        // 显示结果
+        function displayResult(data, mode) {
+            const container = document.getElementById('resultArea');
+
+            if (!data.success) {
+                displayError(data.error);
+                return;
+            }
+
+            const modeText = mode === 'single' ? '单图识别' : '多角度融合识别';
+            const modeBadgeClass = mode === 'single' ? 'mode-single' : 'mode-multi';
+
+            let html = `
+                <div class="result-header">
+                    <div>
+                        <h3>识别结果 <span class="mode-badge ${modeBadgeClass}">${modeText}</span></h3>
+                    </div>
+                    <span class="result-success">✅ 成功</span>
+                </div>
+            `;
+
+            if (mode === 'single') {
+                html += `<p style="margin-bottom: 15px;">共识别出 <strong>${data.total_texts}</strong> 个文字</p>`;
+                if (data.results && data.results.length > 0) {
+                    data.results.forEach(item => {
+                        html += `
+                            <div class="result-item">
+                                <div class="result-text">${item.text}</div>
+                                <div class="result-confidence">置信度: ${(item.confidence * 100).toFixed(2)}%</div>
+                            </div>
+                        `;
+                    });
+                }
+            } else {
+                // 多角度融合识别结果
+                if (data.lines && data.lines.length > 0) {
+                    html += `<p style="margin-bottom: 15px;">共融合出 <strong>${data.total_lines}</strong> 行文字</p>`;
+                    
+                    data.lines.forEach((line, index) => {
+                        html += `
+                            <div class="result-item">
+                                <h4 style="color: #666; font-size: 14px; margin-bottom: 10px;">第 ${index + 1} 行</h4>
+                                <div class="result-text">${line.text}</div>
+                                <div class="result-confidence">
+                                    平均置信度: ${(line.confidence * 100).toFixed(2)}% | 
+                                    出现在 ${line.occurrence_count} 张图片中
+                                </div>
+                            </div>
+                        `;
+                    });
+                } else {
+                    // 降级显示:原始融合结果
+                    html += `
+                        <div class="result-item">
+                            <h4>最终融合结果</h4>
+                            <div class="result-text">${data.merged_text || '无'}</div>
+                            <p style="margin-top: 10px; color: #666;">融合方法: ${data.fusion_method} | 总文字数: ${data.total_merged_texts || 0}</p>
+                        </div>
+                    `;
+                }
+
+                if (data.alternatives && data.alternatives.length > 0) {
+                    html += `<div class="result-item"><h4>备选结果</h4>`;
+                    data.alternatives.forEach(alt => {
+                        html += `<p style="margin: 5px 0;">• ${alt.text} (出现 ${alt.count || alt.occurrence_count || 1} 次)</p>`;
+                    });
+                    html += `</div>`;
+                }
+            }
+
+            container.innerHTML = html;
+            container.classList.add('show');
+        }
+
+        // 显示错误
+        function displayError(message) {
+            const container = document.getElementById('resultArea');
+            container.innerHTML = `
+                <div class="result-header">
+                    <h3>识别失败</h3>
+                    <span class="result-error">❌ 错误</span>
+                </div>
+                <p style="color: #f44336; padding: 15px;">${message}</p>
+                <div style="background: #fff3cd; padding: 15px; border-radius: 8px; margin-top: 15px;">
+                    <p style="color: #856404; margin: 5px 0;"><strong>💡 建议:</strong></p>
+                    <p style="color: #856404; margin: 5px 0;">• 确保 API 服务已启动 (运行 python api.py)</p>
+                    <p style="color: #856404; margin: 5px 0;">• 勾选"启用图像增强"选项</p>
+                    <p style="color: #856404; margin: 5px 0;">• 尝试上传更清晰的图片</p>
+                    <p style="color: #856404; margin: 5px 0;">• 如果是模糊图片,可以选择4倍放大</p>
+                </div>
+            `;
+            container.classList.add('show');
+        }
+
+        // 拖拽上传
+        const uploadArea = document.getElementById('uploadArea');
+
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('drag-over');
+        });
+
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('drag-over');
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('drag-over');
+            handleFiles(e.dataTransfer.files);
+        });
+    </script>
+</body>
+</html>

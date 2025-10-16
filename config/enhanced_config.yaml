@@ -1,0 +1,114 @@
+# 增强识别配置 - 专门用于难以识别的图片
+# 针对小文字、低对比度、光照不均等问题优化
+
+# 预处理配置 - 更激进的参数
+preprocessing:
+  enable: true
+  # 亮度对比度调整 - 更强的增强
+  brightness_contrast:
+    enable: true
+    clip_limit: 4.0  # 增大裁剪限制
+    tile_size: [4, 4]  # 更小的网格,更精细
+  # 去噪处理
+  denoise:
+    enable: true
+    method: "bilateral"  # 双边滤波,保留边缘
+    kernel_size: 9
+    sigma: 2.0
+  # 边缘增强 - 启用
+  edge_enhancement:
+    enable: true
+    method: "laplacian"
+    kernel_size: 3
+  # 二值化 - 启用
+  binarization:
+    enable: true
+    method: "adaptive"  # 自适应阈值
+    block_size: 15
+    c_value: 3
+  # 形态学处理 - 连接断裂文字
+  morphology:
+    enable: true
+    operation: "close"
+    kernel_size: [2, 2]
+
+# 文字检测配置 - 更宽松的阈值
+detection:
+  engine: "paddleocr"
+  paddleocr:
+    det_db_thresh: 0.1  # 降低检测阈值,检测更多候选区域
+    det_db_box_thresh: 0.2  # 降低框阈值
+    det_db_unclip_ratio: 2.0  # 增大扩展比例,包含更多边缘
+    max_side_len: 1920  # 增大最大边长,保持分辨率
+    use_dilation: true  # 启用膨胀操作
+
+# 文字识别配置
+recognition:
+  engine: "paddleocr"  # 或者使用 "auto" 自动选择最佳引擎
+  paddleocr:
+    rec_algorithm: "SVTR_LCNet"
+    rec_batch_num: 6
+    rec_image_shape: [3, 48, 320]
+    max_text_length: 25
+    lang: "en"
+  easyocr:
+    lang_list: ["en"]
+    decoder: "beamsearch"
+    beam_width: 5
+    batch_size: 1
+    allowlist: "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+-×/. "
+    paragraph: false
+
+# 后处理配置 - 更宽松的过滤
+postprocessing:
+  # 置信度过滤 - 降低阈值
+  min_confidence: 0.3  # 降低到0.3,接受更多结果
+  # 长度过滤
+  min_length: 1
+  max_length: 30
+  # 字符类型过滤 - 更宽松
+  enable_char_filter: false  # 暂时禁用,接受所有字符
+  allowed_chars: "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+-×/. "
+  # 相似字符纠正
+  enable_correction: true
+  correction_rules:
+    - ["O", "0"]
+    - ["I", "1", "l"]
+    - ["S", "5"]
+    - ["Z", "2"]
+    - ["B", "8"]
+    - ["G", "6"]
+  # 结果去重
+  enable_deduplication: true
+  similarity_threshold: 0.85
+  min_results: 2  # 降低最小结果数
+
+# 多角度融合配置
+multi_angle:
+  fusion_method: "voting"
+  min_images: 2
+  max_images: 10
+  alignment_method: "hybrid"
+  return_alternatives: true
+  alternative_threshold: 0.7  # 降低阈值
+
+# 系统配置
+system:
+  use_gpu: false  # 如果有GPU,设置为true可以加速
+  gpu_id: 0
+  num_workers: 4
+  log_level: "DEBUG"  # 使用DEBUG级别查看详细信息
+  model_cache_dir: "./models"
+  temp_dir: "./temp"
+  output_dir: "./enhanced_output"
+
+# 可视化配置
+visualization:
+  enable: true
+  draw_bbox: true
+  draw_text: true
+  draw_confidence: true
+  bbox_color: [0, 255, 0]
+  text_color: [255, 0, 0]
+  font_scale: 0.8
+  thickness: 2

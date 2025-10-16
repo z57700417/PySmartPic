@@ -82,12 +82,18 @@ class MultiAngleFusion:
                 "success": False,
                 "error": f"不支持的融合方法: {self.fusion_method}"
             }
+        
+        # 按行融合(从每个图片的行分组结果中融合)
+        fused_lines = self._fuse_lines(recognition_results)
             
         # 构建返回结果
         result = {
             "success": True,
             "merged_text": merged_text,
             "confidence": confidence,
+            "total_merged_texts": len(merged_text.split()),
+            "total_lines": len(fused_lines),
+            "lines": fused_lines,
             "source_count": len(recognition_results),
             "individual_results": recognition_results,
             "fusion_method": self.fusion_method
@@ -286,3 +292,61 @@ class MultiAngleFusion:
         
         logger.info(f"合并融合: {merged_text} (平均置信度: {avg_confidence:.3f})")
         return merged_text, avg_confidence, []
+    
+    def _fuse_lines(self, recognition_results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        融合多个图片的行分组结果
+        
+        Args:
+            recognition_results: 多个图片的识别结果列表
+            
+        Returns:
+            融合后的行结果列表
+        """
+        # 收集所有图片的行结果
+        all_lines = []
+        
+        for result in recognition_results:
+            if result.get("success", False) and "lines" in result:
+                for line in result.get("lines", []):
+                    all_lines.append({
+                        "text": line.get("text", ""),
+                        "confidence": line.get("confidence", 0),
+                        "item_count": line.get("item_count", 0)
+                    })
+        
+        if not all_lines:
+            return []
+        
+        # 按文本分组并融合
+        line_groups = defaultdict(lambda: {"confidences": [], "counts": []})
+        
+        for line in all_lines:
+            text = line["text"]
+            # 对相似的文本进行分组(去除空格后比较)
+            normalized_text = text.replace(" ", "")
+            line_groups[normalized_text]["confidences"].append(line["confidence"])
+            line_groups[normalized_text]["counts"].append(1)
+            if "original_text" not in line_groups[normalized_text]:
+                line_groups[normalized_text]["original_text"] = text
+        
+        # 计算每个行的融合结果
+        fused_lines = []
+        
+        for normalized_text, data in line_groups.items():
+            avg_confidence = np.mean(data["confidences"])
+            occurrence_count = len(data["confidences"])
+            text = data["original_text"]
+            
+            fused_lines.append({
+                "text": text,
+                "confidence": avg_confidence,
+                "occurrence_count": occurrence_count,  # 该行在多少张图片中出现
+                "item_count": 1
+            })
+        
+        # 按出现次数和置信度排序
+        fused_lines.sort(key=lambda x: (x["occurrence_count"], x["confidence"]), reverse=True)
+        
+        logger.info(f"融合后共 {len(fused_lines)} 行")
+        return fused_lines

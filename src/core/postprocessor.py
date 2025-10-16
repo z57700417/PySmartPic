@@ -245,7 +245,34 @@ class PostProcessor:
             
         # 处理混合字母数字的常见混淆（上下文修正）
         try:
-            if re.fullmatch(r'[A-Z0-9]{3,}', corrected):
+            # 轮毂编号特殊模式: AT + 数字
+            if len(corrected) >= 7 and corrected[0:2] == 'AT':
+                chars = list(corrected)
+                # 后面应该是数字,纠正常见混淆
+                for i in range(2, len(chars)):
+                    c = chars[i]
+                    if c.isalpha():
+                        # 字母转数字的常见混淆
+                        if c == 'O' or c == 'Q' or c == 'D':
+                            chars[i] = '0'
+                        elif c == 'I' or c == 'l':
+                            chars[i] = '1'
+                        elif c == 'Z':
+                            chars[i] = '2'
+                        elif c == 'B':
+                            chars[i] = '8'
+                        elif c == 'S':
+                            chars[i] = '5'
+                        elif c == 'G':
+                            chars[i] = '6'
+                        elif c == 'T':
+                            chars[i] = '7'
+                        elif c == 'A':
+                            chars[i] = '4'
+                        elif c == 'g' or c == 'q':
+                            chars[i] = '9'
+                corrected = ''.join(chars)
+            elif re.fullmatch(r'[A-Z0-9]{3,}', corrected):
                 chars = list(corrected)
                 for i, c in enumerate(chars):
                     prev = chars[i-1] if i > 0 else ''
@@ -263,6 +290,10 @@ class PostProcessor:
                             chars[i] = '5'
                         elif c == 'Z':
                             chars[i] = '2'
+                        elif c == 'G':
+                            chars[i] = '6'
+                        elif c == 'T':
+                            chars[i] = '7'
                 corrected = ''.join(chars)
         except Exception:
             pass
