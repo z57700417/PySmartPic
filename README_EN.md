@@ -2,8 +2,6 @@
 
 A deep learning-based OCR system tailored for recognizing letters and text engraved or printed on automotive wheel hubs. It supports command-line tools, a web API service, and direct Python integration.
 
-> Project Status: Production-ready
-> Last Updated: 2025-10-15
 
 ## ✨ Features
 
@@ -250,3 +248,4 @@ MIT License
 ## 📧 Contact
 
 your-email@example.com
+
