@@ -481,9 +481,5 @@ MIT License
 
 ---
 
-## 🔗 Quick Links
-
-- 📖 [Full Documentation](DIFFICULT_IMAGE_GUIDE.md)
-- 🐛 [Report Issues](https://github.com/your-repo/issues)
 - 💬 [Discussions](https://github.com/your-repo/discussions)
 
