@@ -415,126 +415,126 @@ class WheelRecognizer:
             
         return result_image
     
-def _group_by_lines(self, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """
-    将识别结果按行分组
+    def _group_by_lines(self, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        将识别结果按行分组
         
-    Args:
-        results: 识别结果列表
+        Args:
+            results: 识别结果列表
             
-    Returns:
-        按行分组的结果列表
-    """
-    if not results:
-        return []
+        Returns:
+            按行分组的结果列表
+        """
+        if not results:
+            return []
         
-    # 按y坐标排序
-    sorted_results = sorted(results, key=lambda x: self._get_y_center(x.get('bbox', [])))
+        # 按y坐标排序
+        sorted_results = sorted(results, key=lambda x: self._get_y_center(x.get('bbox', [])))
         
-    # 分组阈值:y坐标差距小于此值认为是同一行
-    y_threshold = 50  # 可以根据实际情况调整
+        # 分组阈值:y坐标差距小于此值认为是同一行
+        y_threshold = 50  # 可以根据实际情况调整
         
-    lines = []
-    current_line = []
-    current_y = None
+        lines = []
+        current_line = []
+        current_y = None
         
-    for item in sorted_results:
-        y_center = self._get_y_center(item.get('bbox', []))
+        for item in sorted_results:
+            y_center = self._get_y_center(item.get('bbox', []))
             
-        if current_y is None:
-            # 第一个元素
-            current_line = [item]
-            current_y = y_center
-        elif abs(y_center - current_y) <= y_threshold:
-            # 同一行
-            current_line.append(item)
-        else:
-            # 新的一行
-            if current_line:
-                # 保存当前行
-                lines.append(self._merge_line_results(current_line))
-            # 开始新行
-            current_line = [item]
-            current_y = y_center
+            if current_y is None:
+                # 第一个元素
+                current_line = [item]
+                current_y = y_center
+            elif abs(y_center - current_y) <= y_threshold:
+                # 同一行
+                current_line.append(item)
+            else:
+                # 新的一行
+                if current_line:
+                    # 保存当前行
+                    lines.append(self._merge_line_results(current_line))
+                # 开始新行
+                current_line = [item]
+                current_y = y_center
         
-    # 保存最后一行
-    if current_line:
-        lines.append(self._merge_line_results(current_line))
+        # 保存最后一行
+        if current_line:
+            lines.append(self._merge_line_results(current_line))
         
-    logger.info(f"识别结果分为 {len(lines)} 行")
-    return lines
+        logger.info(f"识别结果分为 {len(lines)} 行")
+        return lines
     
-def _get_y_center(self, bbox: List) -> float:
-    """
-    获取边界框的y中心坐标
+    def _get_y_center(self, bbox: List) -> float:
+        """
+        获取边界框的y中心坐标
         
-    Args:
-        bbox: 边界框坐标
+        Args:
+            bbox: 边界框坐标
             
-    Returns:
-        y中心坐标
-    """
-    if not bbox or len(bbox) == 0:
-        return 0.0
+        Returns:
+            y中心坐标
+        """
+        if not bbox or len(bbox) == 0:
+            return 0.0
         
-    try:
-        # bbox格式: [[x1,y1], [x2,y2], [x3,y3], [x4,y4]]
-        y_coords = [point[1] for point in bbox]
-        return sum(y_coords) / len(y_coords)
-    except (IndexError, TypeError):
-        return 0.0
+        try:
+            # bbox格式: [[x1,y1], [x2,y2], [x3,y3], [x4,y4]]
+            y_coords = [point[1] for point in bbox]
+            return sum(y_coords) / len(y_coords)
+        except (IndexError, TypeError):
+            return 0.0
     
-def _merge_line_results(self, line_items: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """
-    合并同一行的识别结果
+    def _get_x_center(self, bbox: List) -> float:
+        """
+        获取边界框的x中心坐标
         
-    Args:
-        line_items: 同一行的识别结果列表
+        Args:
+            bbox: 边界框坐标
             
-    Returns:
-        合并后的行结果
-    """
-    if not line_items:
+        Returns:
+            x中心坐标
+        """
+        if not bbox or len(bbox) == 0:
+            return 0.0
+        
+        try:
+            # bbox格式: [[x1,y1], [x2,y2], [x3,y3], [x4,y4]]
+            x_coords = [point[0] for point in bbox]
+            return sum(x_coords) / len(x_coords)
+        except (IndexError, TypeError):
+            return 0.0
+    
+    def _merge_line_results(self, line_items: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        合并同一行的识别结果
+        
+        Args:
+            line_items: 同一行的识别结果列表
+            
+        Returns:
+            合并后的行结果
+        """
+        if not line_items:
+            return {
+                "text": "",
+                "confidence": 0.0,
+                "item_count": 0,
+                "items": []
+            }
+        
+        # 按x坐标排序(从左到右)
+        sorted_items = sorted(line_items, key=lambda x: self._get_x_center(x.get('bbox', [])))
+        
+        # 合并文本
+        merged_text = ' '.join([item.get('text', '') for item in sorted_items])
+        
+        # 计算平均置信度
+        confidences = [item.get('confidence', 0) for item in sorted_items]
+        avg_confidence = sum(confidences) / len(confidences) if confidences else 0.0
+        
         return {
-            "text": "",
-            "confidence": 0.0,
-            "item_count": 0,
-            "items": []
+            "text": merged_text,
+            "confidence": avg_confidence,
+            "item_count": len(sorted_items),
+            "items": sorted_items
         }
-        
-    # 按x坐标排序(从左到右)
-    sorted_items = sorted(line_items, key=lambda x: self._get_x_center(x.get('bbox', [])))
-        
-    # 合并文本
-    merged_text = ' '.join([item.get('text', '') for item in sorted_items])
-        
-    # 计算平均置信度
-    confidences = [item.get('confidence', 0) for item in sorted_items]
-    avg_confidence = sum(confidences) / len(confidences) if confidences else 0.0
-        
-    return {
-        "text": merged_text,
-        "confidence": avg_confidence,
-        "item_count": len(sorted_items),
-        "items": sorted_items
-    }
-    
-def _get_x_center(self, bbox: List) -> float:
-    """
-    获取边界框的x中心坐标
-        
-    Args:
-        bbox: 边界框坐标
-            
-    Returns:
-        x中心坐标
-    """
-    if not bbox or len(bbox) == 0:
-        return 0.0
-        
-    try:
-        # bbox格式: [[x1,y1], [x2,y2], [x3,y3], [x4,y4]]
-        x_coords = [point[0] for point in bbox]
-        return sum(x_coords) / len(x_coords)
-    except (IndexError, TypeError):
-        return 0.0

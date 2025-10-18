@@ -75,33 +75,22 @@ def enhance_image_for_ocr(image_path, scale_factor=3.0):
     # 转灰度
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     
-    # 去除光照不均
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 15))
-    tophat = cv2.morphologyEx(gray, cv2.MORPH_TOPHAT, kernel)
-    blackhat = cv2.morphologyEx(gray, cv2.MORPH_BLACKHAT, kernel)
-    gray = cv2.add(gray, tophat)
-    gray = cv2.subtract(gray, blackhat)
+    # 方法1: 直接增强对比度 - 适合大多数场景
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+    enhanced = clahe.apply(gray)
     
-    # CLAHE增强对比度
-    clahe = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(4, 4))
-    gray = clahe.apply(gray)
+    # 双边滤波去噪（保留边缘）
+    enhanced = cv2.bilateralFilter(enhanced, 9, 75, 75)
     
-    # 双边滤波去噪
-    gray = cv2.bilateralFilter(gray, 9, 75, 75)
+    # 温和锐化
+    kernel_sharpen = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]])
+    enhanced = cv2.filter2D(enhanced, -1, kernel_sharpen)
     
-    # 锐化
-    kernel_sharpen = np.array([[-1, -1, -1], [-1, 9, -1], [-1, -1, -1]])
-    gray = cv2.filter2D(gray, -1, kernel_sharpen)
+    # 直接返回灰度图（不二值化）- PaddleOCR更适合原始灰度图
+    # 转回BGR格式
+    result = cv2.cvtColor(enhanced, cv2.COLOR_GRAY2BGR)
     
-    # 自适应阈值
-    binary = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 15, 3)
-    
-    # 形态学闭运算
-    kernel_morph = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
-    binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel_morph)
-    
-    # 转回BGR
-    result = cv2.cvtColor(binary, cv2.COLOR_GRAY2BGR)
+    logger.info(f"图像增强完成: 放大{scale_factor}x, 最终尺寸: {result.shape}")
     return result
 
 
@@ -161,10 +150,11 @@ def recognize():
         
         # 如果启用增强,使用更宽松的检测参数
         if enhance:
-            config.set("detection.paddleocr.det_db_thresh", 0.1)
-            config.set("detection.paddleocr.det_db_box_thresh", 0.2)
-            config.set("detection.paddleocr.det_db_unclip_ratio", 2.0)
-            config.set("preprocessing.enable", False)  # 已手动处理
+            config.set("detection.paddleocr.det_db_thresh", 0.05)  # 更低的阈值,提高敏感度
+            config.set("detection.paddleocr.det_db_box_thresh", 0.1)  # 更宽松的框阈值
+            config.set("detection.paddleocr.det_db_unclip_ratio", 2.5)  # 更大的展开比例
+            config.set("preprocessing.enable", True)  # 启用额外预处理
+            config.set("postprocessing.min_confidence", 0.3)  # 降低置信度阈值
         
         # 执行识别
         result = recognizer.recognize(temp_path)
