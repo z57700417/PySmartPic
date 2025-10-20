@@ -66,6 +66,11 @@ def enhance_image_for_ocr(image_path, scale_factor=3.0):
     if image is None:
         return None
     
+    # 智能计算最佳放大倍数
+    if scale_factor == 0 or scale_factor < 0:  # 0 表示自动判断
+        scale_factor = calculate_optimal_scale(image)
+        logger.info(f"自动判断最佳放大倍数: {scale_factor}x")
+    
     # 放大图像
     if scale_factor > 1.0:
         new_width = int(image.shape[1] * scale_factor)
@@ -86,12 +91,84 @@ def enhance_image_for_ocr(image_path, scale_factor=3.0):
     kernel_sharpen = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]])
     enhanced = cv2.filter2D(enhanced, -1, kernel_sharpen)
     
-    # 直接返回灰度图（不二值化）- PaddleOCR更适合原始灰度图
+    # 直接返回灰度图（不二倿化）- PaddleOCR更适合原始灰度图
     # 转回BGR格式
     result = cv2.cvtColor(enhanced, cv2.COLOR_GRAY2BGR)
     
     logger.info(f"图像增强完成: 放大{scale_factor}x, 最终尺寸: {result.shape}")
     return result
+
+
+def calculate_optimal_scale(image):
+    """
+    智能计算最佳放大倍数
+    
+    基于图像尺寸、清晰度、对比度等因素综合判断
+    
+    Args:
+        image: 输入图像
+        
+    Returns:
+        最佳放大倍数
+    """
+    height, width = image.shape[:2]
+    
+    # 1. 基于尺寸判断
+    min_dim = min(height, width)
+    max_dim = max(height, width)
+    
+    # 小图片需要更大的放大倍数
+    if min_dim < 800:
+        base_scale = 4.0
+    elif min_dim < 1200:
+        base_scale = 3.5
+    elif min_dim < 1600:
+        base_scale = 3.0
+    elif min_dim < 2400:
+        base_scale = 2.0
+    else:
+        base_scale = 1.5
+    
+    # 2. 基于清晰度判断(拉普拉斯方差)
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    laplacian_var = cv2.Laplacian(gray, cv2.CV_64F).var()
+    
+    # 模糊图片需要更大的放大
+    if laplacian_var < 100:  # 非常模糊
+        blur_factor = 1.3
+    elif laplacian_var < 300:  # 较模糊
+        blur_factor = 1.2
+    elif laplacian_var < 500:  # 轻微模糊
+        blur_factor = 1.1
+    else:  # 清晰
+        blur_factor = 1.0
+    
+    # 3. 基于对比度判断
+    contrast = gray.std()
+    if contrast < 30:  # 低对比度
+        contrast_factor = 1.2
+    elif contrast < 50:
+        contrast_factor = 1.1
+    else:
+        contrast_factor = 1.0
+    
+    # 综合计算
+    optimal_scale = base_scale * blur_factor * contrast_factor
+    
+    # 限制在合理范围内(1.5-5.0)
+    optimal_scale = max(1.5, min(5.0, optimal_scale))
+    
+    # 限制最终图像尺寸不超过8000像素(避免过大)
+    final_max_dim = max_dim * optimal_scale
+    if final_max_dim > 8000:
+        optimal_scale = 8000 / max_dim
+    
+    # 四舍五入到0.5
+    optimal_scale = round(optimal_scale * 2) / 2
+    
+    logger.debug(f"图像分析: 尺寸={width}x{height}, 清晰度={laplacian_var:.1f}, 对比度={contrast:.1f}")
+    
+    return optimal_scale
 
 
 @app.route('/api/recognize', methods=['POST'])
@@ -128,6 +205,8 @@ def recognize():
         confidence_threshold = float(request.form.get('confidence_threshold', '0.6'))
         enhance = request.form.get('enhance', 'false').lower() == 'true'  # 是否启用增强
         scale_factor = float(request.form.get('scale_factor', '3.0'))  # 放大倍数
+        region_filter = request.form.get('region_filter', 'false').lower() == 'true'  # 区域过滤
+        center_only = request.form.get('center_only', 'false').lower() == 'true'  # 只识别中心
         
         # 保存临时文件
         temp_dir = tempfile.gettempdir()
@@ -147,6 +226,8 @@ def recognize():
         # 更新配置
         config.set("recognition.engine", engine)
         config.set("postprocessing.min_confidence", confidence_threshold)
+        config.set("postprocessing.enable_region_filter", region_filter)
+        config.set("postprocessing.center_region_only", center_only)
         
         # 如果启用增强,使用更宽松的检测参数
         if enhance:
@@ -280,12 +361,26 @@ def recognize_multi_angle():
         visualize = request.form.get('visualize', 'false').lower() == 'true'
         confidence_threshold = float(request.form.get('confidence_threshold', '0.6'))
         return_alternatives = request.form.get('return_alternatives', 'true').lower() == 'true'
+        enhance = request.form.get('enhance', 'false').lower() == 'true'  # 是否启用增强
+        scale_factor = float(request.form.get('scale_factor', '3.0'))  # 放大倍数
+        region_filter = request.form.get('region_filter', 'false').lower() == 'true'  # 区域过滤
+        center_only = request.form.get('center_only', 'false').lower() == 'true'  # 只识别中心
         
         # 更新配置
         config.set("recognition.engine", engine)
         config.set("postprocessing.min_confidence", confidence_threshold)
         config.set("multi_angle.fusion_method", fusion_method)
         config.set("multi_angle.return_alternatives", return_alternatives)
+        config.set("postprocessing.enable_region_filter", region_filter)
+        config.set("postprocessing.center_region_only", center_only)
+        
+        # 如果启用增强,使用更宽松的检测参数
+        if enhance:
+            config.set("detection.paddleocr.det_db_thresh", 0.05)
+            config.set("detection.paddleocr.det_db_box_thresh", 0.1)
+            config.set("detection.paddleocr.det_db_unclip_ratio", 2.5)
+            config.set("preprocessing.enable", True)
+            config.set("postprocessing.min_confidence", 0.3)
         
         # 保存临时文件
         temp_dir = tempfile.gettempdir()
@@ -296,7 +391,19 @@ def recognize_multi_angle():
                 temp_filename = f"{uuid.uuid4()}_{secure_filename(file.filename)}"
                 temp_path = os.path.join(temp_dir, temp_filename)
                 file.save(temp_path)
+                
+                # 图像增强处理
+                if enhance:
+                    enhanced_image = enhance_image_for_ocr(temp_path, scale_factor)
+                    if enhanced_image is not None:
+                        enhanced_path = os.path.join(temp_dir, f"enhanced_{temp_filename}")
+                        cv2.imwrite(enhanced_path, enhanced_image)
+                        temp_path = enhanced_path
+                
                 temp_paths.append(temp_path)
+        
+        if enhance:
+            logger.info(f"多角度识别: 应用图像增强处理 (放大{scale_factor}x, {len(temp_paths)}张图片)")
                 
         if len(temp_paths) < 2:
             return jsonify({
@@ -306,13 +413,25 @@ def recognize_multi_angle():
             
         # 逐张识别
         individual_results = []
-        for temp_path in temp_paths:
+        visualization_urls = []
+        for idx, temp_path in enumerate(temp_paths):
             result = recognizer.recognize(temp_path)
             individual_results.append(result)
+            
+            # 生成可视化图片
+            if visualize and result.get("success", False):
+                vis_filename = f"{uuid.uuid4()}_img{idx+1}_result.jpg"
+                vis_path = os.path.join(temp_dir, vis_filename)
+                recognizer.visualize(temp_path, result, vis_path)
+                visualization_urls.append(f"/api/visualization/{vis_filename}")
             
         # 创建融合器并融合结果
         fusion = MultiAngleFusion(config["multi_angle"])
         fused_result = fusion.fuse_results(individual_results)
+        
+        # 添加可视化URLs到结果
+        if visualization_urls:
+            fused_result["visualization_urls"] = visualization_urls
         
         # 清理临时文件
         for temp_path in temp_paths:

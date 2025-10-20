@@ -30,6 +30,17 @@ class PostProcessor:
         self.similarity_threshold = config.get("similarity_threshold", 0.9)
         self.min_results = config.get("min_results", 0)
         
+        # 区域过滤配置(过滤非轮毂文字)
+        self.enable_region_filter = config.get("enable_region_filter", False)
+        self.region_filter_config = {
+            "min_area_ratio": config.get("min_area_ratio", 0.0001),  # 最小面积比例(相对图像)
+            "max_area_ratio": config.get("max_area_ratio", 0.1),     # 最大面积比例
+            "min_aspect_ratio": config.get("min_aspect_ratio", 0.2), # 最小宽高比
+            "max_aspect_ratio": config.get("max_aspect_ratio", 10),  # 最大宽高比
+            "center_region_only": config.get("center_region_only", False),  # 是否只保留中心区域
+            "center_region_ratio": config.get("center_region_ratio", 0.6)  # 中心区域比例
+        }
+        
     def process(self, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
         执行完整的后处理流程
@@ -44,6 +55,11 @@ class PostProcessor:
             return []
             
         orig_results = list(results)
+        
+        # 区域过滤(过滤非轮毂文字,如贴纸、标签等)
+        if self.enable_region_filter:
+            results = self._filter_by_region(results)
+        
         # 置信度过滤
         results = self._filter_by_confidence(results)
         
@@ -135,6 +151,145 @@ class PostProcessor:
                 logger.debug(f"过滤低置信度结果: {result.get('text')} (置信度: {result.get('confidence')})")
                 
         logger.info(f"置信度过滤: {len(results)} -> {len(filtered)}")
+        return filtered
+    
+    def _filter_by_region(self, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        根据区域特征过滤(过滤贴纸、标签等非轮毂文字)
+        
+        Args:
+            results: 识别结果列表
+            
+        Returns:
+            过滤后的结果列表
+        """
+        if not results:
+            return []
+        
+        # 计算图像尺寸(从第一个bbox推断,假设图像大小)
+        image_width = 0
+        image_height = 0
+        for result in results:
+            bbox = result.get("bbox", [])
+            if bbox and len(bbox) >= 2:
+                try:
+                    x_coords = [point[0] for point in bbox]
+                    y_coords = [point[1] for point in bbox]
+                    image_width = max(image_width, max(x_coords))
+                    image_height = max(image_height, max(y_coords))
+                except (IndexError, TypeError):
+                    continue
+        
+        if image_width == 0 or image_height == 0:
+            logger.warning("无法获取图像尺寸,跳过区域过滤")
+            return results
+        
+        image_area = image_width * image_height
+        center_x = image_width / 2
+        center_y = image_height / 2
+        
+        filtered = []
+        for result in results:
+            bbox = result.get("bbox", [])
+            text = result.get("text", "")
+            
+            if not bbox or len(bbox) < 2:
+                filtered.append(result)
+                continue
+            
+            try:
+                # 计算区域特征
+                x_coords = [point[0] for point in bbox]
+                y_coords = [point[1] for point in bbox]
+                
+                min_x, max_x = min(x_coords), max(x_coords)
+                min_y, max_y = min(y_coords), max(y_coords)
+                
+                width = max_x - min_x
+                height = max_y - min_y
+                area = width * height
+                
+                # 计算中心点
+                bbox_center_x = (min_x + max_x) / 2
+                bbox_center_y = (min_y + max_y) / 2
+                
+                # 计算面积比例
+                area_ratio = area / image_area
+                
+                # 计算宽高比
+                aspect_ratio = width / height if height > 0 else 0
+                
+                # 计算与图像中心的距离
+                dist_to_center = ((bbox_center_x - center_x)**2 + (bbox_center_y - center_y)**2)**0.5
+                max_dist = (center_x**2 + center_y**2)**0.5
+                dist_ratio = dist_to_center / max_dist if max_dist > 0 else 1
+                
+                # 过滤条件
+                filter_reasons = []
+                
+                # 1. 面积过大或过小(可能是标签或噪点)
+                if area_ratio < self.region_filter_config["min_area_ratio"]:
+                    filter_reasons.append(f"面积过小({area_ratio:.4f})")
+                elif area_ratio > self.region_filter_config["max_area_ratio"]:
+                    filter_reasons.append(f"面积过大({area_ratio:.4f})")
+                
+                # 2. 宽高比异常(可能是标签或贴纸)
+                if aspect_ratio < self.region_filter_config["min_aspect_ratio"]:
+                    filter_reasons.append(f"宽高比过小({aspect_ratio:.2f})")
+                elif aspect_ratio > self.region_filter_config["max_aspect_ratio"]:
+                    filter_reasons.append(f"宽高比过大({aspect_ratio:.2f})")
+                
+                # 3. 位置过偏(只保留中心区域)
+                if self.region_filter_config["center_region_only"]:
+                    center_threshold = 1 - self.region_filter_config["center_region_ratio"]
+                    if dist_ratio > center_threshold:
+                        filter_reasons.append(f"位置过偏({dist_ratio:.2f})")
+                
+                # 4. 特殊过滤:检测标签特征
+                is_likely_label = False
+                
+                # 4.1 如果文本全是数字且长度>6,且宽高比接近矩形(0.8-3之间)
+                if text.isdigit() and len(text) >= 7:
+                    if 0.8 <= aspect_ratio <= 3.0:
+                        is_likely_label = True
+                        filter_reasons.append(f"疑似标签:长数字+矩形({aspect_ratio:.2f})")
+                
+                # 4.2 如果区域面积相对较大且形状规整(可能是贴纸/标签)
+                if area_ratio > 0.015 and 0.8 <= aspect_ratio <= 4.0:
+                    is_likely_label = True
+                    filter_reasons.append(f"疑似标签:大面积({area_ratio:.4f})+规整形状")
+                
+                # 4.3 如果位于图像边缘(距离边界很近)
+                edge_threshold = 0.15  # 距离边缘15%以内
+                near_edge = (
+                    bbox_center_x < image_width * edge_threshold or 
+                    bbox_center_x > image_width * (1 - edge_threshold) or
+                    bbox_center_y < image_height * edge_threshold or 
+                    bbox_center_y > image_height * (1 - edge_threshold)
+                )
+                if near_edge and area_ratio > 0.005:
+                    is_likely_label = True
+                    filter_reasons.append("疑似标签:靠近边缘")
+                
+                # 4.4 轮毂文字通常特征:较小、嵌入金属表面
+                # 如果面积比例在0.0005-0.008之间,更可能是轮毂雕刻文字
+                is_likely_wheel_text = (0.0005 <= area_ratio <= 0.008)
+                
+                # 如果被判定为标签,且不是轮毂文字,则过滤
+                if is_likely_label and not is_likely_wheel_text:
+                    if not filter_reasons:
+                        filter_reasons.append("综合判断为标签")
+                
+                if filter_reasons:
+                    logger.debug(f"区域过滤: {text} - {', '.join(filter_reasons)}")
+                else:
+                    filtered.append(result)
+                    
+            except Exception as e:
+                logger.debug(f"区域过滤处理错误: {e}, 保留结果")
+                filtered.append(result)
+        
+        logger.info(f"区域过滤: {len(results)} -> {len(filtered)}")
         return filtered
         
     def _filter_by_length(self, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

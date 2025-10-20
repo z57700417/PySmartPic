@@ -304,49 +304,145 @@ class MultiAngleFusion:
             融合后的行结果列表
         """
         # 收集所有图片的行结果
-        all_lines = []
+        all_lines_by_image = []
         
-        for result in recognition_results:
+        for idx, result in enumerate(recognition_results):
             if result.get("success", False) and "lines" in result:
+                lines = []
                 for line in result.get("lines", []):
-                    all_lines.append({
-                        "text": line.get("text", ""),
+                    line_text = line.get("text", "")
+                    lines.append({
+                        "text": line_text,
                         "confidence": line.get("confidence", 0),
                         "item_count": line.get("item_count", 0)
                     })
+                    logger.debug(f"图片{idx+1} 识别: {line_text} (置信度: {line.get('confidence', 0):.2f})")
+                if lines:
+                    all_lines_by_image.append(lines)
         
-        if not all_lines:
+        if not all_lines_by_image:
             return []
         
-        # 按文本分组并融合
-        line_groups = defaultdict(lambda: {"confidences": [], "counts": []})
+        # 找到最大行数
+        max_lines = max(len(lines) for lines in all_lines_by_image)
         
-        for line in all_lines:
-            text = line["text"]
-            # 对相似的文本进行分组(去除空格后比较)
-            normalized_text = text.replace(" ", "")
-            line_groups[normalized_text]["confidences"].append(line["confidence"])
-            line_groups[normalized_text]["counts"].append(1)
-            if "original_text" not in line_groups[normalized_text]:
-                line_groups[normalized_text]["original_text"] = text
+        if max_lines == 0:
+            return []
         
-        # 计算每个行的融合结果
+        # 按位置融合: 假设每张图片的第 i 行对应同一个物理位置
         fused_lines = []
         
-        for normalized_text, data in line_groups.items():
-            avg_confidence = np.mean(data["confidences"])
-            occurrence_count = len(data["confidences"])
-            text = data["original_text"]
+        for line_index in range(max_lines):
+            # 收集所有图片在该位置的行
+            lines_at_position = []
+            
+            for image_idx, image_lines in enumerate(all_lines_by_image):
+                if line_index < len(image_lines):
+                    line_data = image_lines[line_index].copy()
+                    line_data['source_image'] = image_idx
+                    lines_at_position.append(line_data)
+            
+            if not lines_at_position:
+                continue
+            
+            logger.info(f"\n=== 位置 {line_index + 1} 的融合 ===")
+            for line in lines_at_position:
+                logger.info(f"  图片{line['source_image']+1}: '{line['text']}' (置信度: {line['confidence']:.2f})")
+            
+            # 融合该位置的行: 使用相似度匹配 + 投票机制
+            text_groups = self._group_similar_texts(lines_at_position)
+            
+            if not text_groups:
+                continue
+            
+            # 选择最佳文本组
+            best_group = max(text_groups, key=lambda g: (g['count'], g['avg_confidence']))
+            
+            logger.info(f"  → 融合结果: '{best_group['text']}' (出现{best_group['count']}次, 置信度: {best_group['avg_confidence']:.2f})")
             
             fused_lines.append({
-                "text": text,
-                "confidence": avg_confidence,
-                "occurrence_count": occurrence_count,  # 该行在多少张图片中出现
+                "text": best_group['text'],
+                "confidence": best_group['avg_confidence'],
+                "occurrence_count": best_group['count'],
                 "item_count": 1
             })
         
-        # 按出现次数和置信度排序
-        fused_lines.sort(key=lambda x: (x["occurrence_count"], x["confidence"]), reverse=True)
-        
-        logger.info(f"融合后共 {len(fused_lines)} 行")
+        logger.info(f"\n按位置融合后共 {len(fused_lines)} 行")
         return fused_lines
+    
+    def _group_similar_texts(self, lines: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        将相似的文本分组(支持模糊匹配)
+        
+        Args:
+            lines: 行数据列表
+            
+        Returns:
+            分组后的文本列表
+        """
+        groups = []
+        
+        for line in lines:
+            text = line['text'].strip()
+            if not text:
+                continue
+            
+            # 查找相似的组
+            matched = False
+            for group in groups:
+                if self._is_similar(text, group['text']):
+                    group['confidences'].append(line['confidence'])
+                    group['count'] += 1
+                    # 如果新文本置信度更高,更新代表文本
+                    if line['confidence'] > group['max_confidence']:
+                        group['text'] = text
+                        group['max_confidence'] = line['confidence']
+                    matched = True
+                    break
+            
+            if not matched:
+                # 创建新组
+                groups.append({
+                    'text': text,
+                    'confidences': [line['confidence']],
+                    'count': 1,
+                    'max_confidence': line['confidence']
+                })
+        
+        # 计算平均置信度
+        for group in groups:
+            group['avg_confidence'] = np.mean(group['confidences'])
+        
+        return groups
+    
+    def _is_similar(self, text1: str, text2: str, threshold: float = 0.8) -> bool:
+        """
+        判断两个文本是否相似
+        
+        Args:
+            text1: 文本1
+            text2: 文本2
+            threshold: 相似度阈值
+            
+        Returns:
+            是否相似
+        """
+        # 完全匹配
+        if text1 == text2:
+            return True
+        
+        # 去除空格后匹配
+        norm1 = text1.replace(' ', '').upper()
+        norm2 = text2.replace(' ', '').upper()
+        if norm1 == norm2:
+            return True
+        
+        # 长度差异过大
+        if abs(len(norm1) - len(norm2)) > max(len(norm1), len(norm2)) * 0.3:
+            return False
+        
+        # 计算编辑距离相似度
+        from difflib import SequenceMatcher
+        similarity = SequenceMatcher(None, norm1, norm2).ratio()
+        
+        return similarity >= threshold

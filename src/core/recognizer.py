@@ -14,6 +14,7 @@ from .config import Config
 from .preprocessor import ImagePreprocessor
 from .detector import TextDetector
 from .postprocessor import PostProcessor
+from .cloud_ocr import CloudOCREngine
 
 
 class WheelRecognizer:
@@ -41,23 +42,52 @@ class WheelRecognizer:
         self.engine_name = None
         self.postprocessor = PostProcessor(self.config["postprocessing"])
         
+        # 初始化云OCR引擎
+        self.cloud_ocr = None
+        self._init_cloud_ocr()
+        
         # 初始化识别引擎
         self._init_recognition_engine()
         
+    def _init_cloud_ocr(self):
+        """初始化云OCR引擎"""
+        try:
+            cloud_config = self.config.get("recognition.cloud_ocr", {})
+            if cloud_config.get("enabled", False):
+                self.cloud_ocr = CloudOCREngine(cloud_config)
+                logger.info(f"云OCR引擎初始化成功: {cloud_config.get('provider', 'aliyun')}")
+            else:
+                logger.info("云OCR引擎未启用")
+        except Exception as e:
+            logger.warning(f"云OCR引擎初始化失败(将继续使用本地OCR): {e}")
+            self.cloud_ocr = None
+    
     def _init_recognition_engine(self):
         """初始化识别引擎"""
         engine_type = self.config.get("recognition.engine", "auto")
         
         if engine_type == "auto":
-            # 同时尝试初始化两个引擎
+            # 先尝试初始化PaddleOCR，如果成功则不再尝试EasyOCR
             self._init_paddleocr()
-            self._init_easyocr()
+            
+            # 如果PaddleOCR初始化失败，再尝试EasyOCR
+            if self.paddle_engine is None:
+                self._init_easyocr()
+                
+            # 如果两个引擎都初始化失败，给出警告
+            if self.paddle_engine is None and self.easy_engine is None:
+                logger.warning("所有OCR引擎初始化失败，请检查依赖安装")
+                
             self.engine_name = "auto"
         elif engine_type == "paddleocr":
             self._init_paddleocr()
+            if self.paddle_engine is None:
+                logger.warning("PaddleOCR引擎初始化失败，请检查依赖安装")
             self.engine_name = "paddleocr"
         elif engine_type == "easyocr":
             self._init_easyocr()
+            if self.easy_engine is None:
+                logger.warning("EasyOCR引擎初始化失败，请检查依赖安装")
             self.engine_name = "easyocr"
         else:
             logger.error(f"不支持的识别引擎: {engine_type}")
@@ -70,14 +100,22 @@ class WheelRecognizer:
             use_gpu = self.config.get("system.use_gpu", False)
             lang = self.config.get("recognition.paddleocr.lang", "en")
             
+            # 获取检测参数
+            det_db_thresh = self.config.get("detection.paddleocr.det_db_thresh", 0.3)
+            det_db_box_thresh = self.config.get("detection.paddleocr.det_db_box_thresh", 0.5)
+            det_db_unclip_ratio = self.config.get("detection.paddleocr.det_db_unclip_ratio", 1.6)
+            
             self.paddle_engine = PaddleOCR(
                 use_angle_cls=True,
                 lang=lang,
                 use_gpu=use_gpu,
-                show_log=False
+                show_log=False,
+                det_db_thresh=det_db_thresh,
+                det_db_box_thresh=det_db_box_thresh,
+                det_db_unclip_ratio=det_db_unclip_ratio
             )
             self.engine_name = "paddleocr"
-            logger.info("PaddleOCR引擎初始化成功")
+            logger.info(f"PaddleOCR引擎初始化成功 (检测阈值: {det_db_thresh}, 框阈值: {det_db_box_thresh}, 展开比例: {det_db_unclip_ratio})")
         except Exception as e:
             logger.error(f"PaddleOCR引擎初始化失败: {e}")
             self._init_easyocr()
@@ -85,6 +123,21 @@ class WheelRecognizer:
     def _init_easyocr(self):
         """初始化EasyOCR引擎"""
         try:
+            # 先检查是否存在shm.dll文件，这是Windows上常见的问题
+            import os
+            import sys
+            import torch
+            
+            # 获取torch库路径
+            torch_lib_path = os.path.join(os.path.dirname(torch.__file__), 'lib')
+            shm_path = os.path.join(torch_lib_path, 'shm.dll')
+            
+            if sys.platform == 'win32' and not os.path.exists(shm_path):
+                logger.warning(f"Windows环境下缺少shm.dll文件，EasyOCR可能无法正常工作")
+                logger.warning(f"请考虑重新安装PyTorch或使用PaddleOCR引擎")
+                self.easy_engine = None
+                return
+                
             import easyocr
             
             use_gpu = self.config.get("system.use_gpu", False)
@@ -93,6 +146,10 @@ class WheelRecognizer:
             self.easy_engine = easyocr.Reader(lang_list, gpu=use_gpu)
             self.engine_name = "easyocr"
             logger.info("EasyOCR引擎初始化成功")
+        except ImportError as ie:
+            logger.error(f"EasyOCR库导入失败: {ie}")
+            logger.warning("请安装EasyOCR: pip install easyocr")
+            self.easy_engine = None
         except Exception as e:
             logger.error(f"EasyOCR引擎初始化失败: {e}")
             self.easy_engine = None
@@ -129,6 +186,9 @@ class WheelRecognizer:
         
         # OCR识别
         raw_results = self._recognize_with_engine(preprocessed)
+        
+        # 智能切换云OCR
+        raw_results = self._apply_cloud_ocr_fallback(raw_results, preprocessed)
 
         # 如果引擎未正确初始化，直接返回失败
         no_engine = (
@@ -538,3 +598,84 @@ class WheelRecognizer:
             "item_count": len(sorted_items),
             "items": sorted_items
         }
+    
+    def _apply_cloud_ocr_fallback(self, local_results: List[Dict[str, Any]], 
+                                   image: np.ndarray) -> List[Dict[str, Any]]:
+        """
+        智能云OCR备用策略
+        
+        Args:
+            local_results: 本地OCR识别结果
+            image: 预处理后的图像
+            
+        Returns:
+            优化后的识别结果
+        """
+        # 如果云OCR未启用,直接返回本地结果
+        if self.cloud_ocr is None:
+            return local_results
+        
+        cloud_config = self.config.get("recognition.cloud_ocr", {})
+        
+        # 检查是否需要使用云OCR
+        use_cloud = False
+        reason = ""
+        
+        if cloud_config.get("use_as_fallback", True):
+            # 策略1: 识别结果数量少
+            min_results = cloud_config.get("fallback_min_results", 2)
+            if len(local_results) < min_results:
+                use_cloud = True
+                reason = f"本地识别结果少于{min_results}个"
+            
+            # 策略2: 置信度过低
+            if not use_cloud and local_results:
+                threshold = cloud_config.get("fallback_confidence_threshold", 0.7)
+                avg_confidence = sum(r.get('confidence', 0) for r in local_results) / len(local_results)
+                if avg_confidence < threshold:
+                    use_cloud = True
+                    reason = f"平均置信度{avg_confidence:.2f}低于阈值{threshold}"
+        
+        # 如果需要使用云OCR
+        if use_cloud:
+            logger.info(f"触发云OCR备用策略: {reason}")
+            
+            try:
+                # 保存临时图片
+                import tempfile
+                import os
+                temp_path = os.path.join(tempfile.gettempdir(), f"cloud_ocr_{int(time.time())}.jpg")
+                cv2.imwrite(temp_path, image)
+                
+                # 调用云OCR
+                cloud_results = self.cloud_ocr.recognize(temp_path)
+                
+                # 清理临时文件
+                try:
+                    os.remove(temp_path)
+                except:
+                    pass
+                
+                # 对比云OCR和本地OCR结果
+                if cloud_results and len(cloud_results) > len(local_results):
+                    logger.info(f"云OCR识别效果更好: 本地{len(local_results)}个 vs 云端{len(cloud_results)}个")
+                    # 标记结果来源
+                    for result in cloud_results:
+                        result['source'] = 'cloud_ocr'
+                    return cloud_results
+                else:
+                    logger.info(f"本地OCR结果更优或相当,继续使用本地结果")
+                    for result in local_results:
+                        result['source'] = 'local_ocr'
+                    return local_results
+                    
+            except Exception as e:
+                logger.error(f"云OCR调用失败,使用本地结果: {e}")
+                for result in local_results:
+                    result['source'] = 'local_ocr'
+                return local_results
+        
+        # 不需要云OCR,返回本地结果
+        for result in local_results:
+            result['source'] = 'local_ocr'
+        return local_results

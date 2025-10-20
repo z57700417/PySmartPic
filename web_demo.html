@@ -94,6 +94,12 @@
             width: 100%;
             height: 100%;
             object-fit: cover;
+            cursor: zoom-in;
+            transition: transform 0.3s;
+        }
+
+        .preview-item img:hover {
+            transform: scale(1.05);
         }
 
         .preview-item .remove-btn {
@@ -290,10 +296,79 @@
             margin: 5px 0;
             color: #856404;
         }
+
+        /* 图片预览放大模态框 */
+        .image-modal {
+            display: none;
+            position: fixed;
+            z-index: 9999;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.9);
+            animation: fadeIn 0.3s;
+        }
+
+        .image-modal.show {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .image-modal-content {
+            max-width: 90%;
+            max-height: 90%;
+            object-fit: contain;
+            border-radius: 10px;
+            box-shadow: 0 0 50px rgba(255, 255, 255, 0.3);
+            animation: zoomIn 0.3s;
+        }
+
+        .image-modal-close {
+            position: absolute;
+            top: 30px;
+            right: 50px;
+            color: white;
+            font-size: 40px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .image-modal-close:hover {
+            color: #ff4444;
+            transform: scale(1.2);
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        @keyframes zoomIn {
+            from { transform: scale(0.5); }
+            to { transform: scale(1); }
+        }
+
+        .preview-item img {
+            cursor: zoom-in;
+            transition: transform 0.3s;
+        }
+
+        .preview-item img:hover {
+            transform: scale(1.05);
+        }
     </style>
 </head>
 <body>
     <div class="api-status" id="apiStatus">检查中...</div>
+
+    <!-- 图片放大模态框 -->
+    <div class="image-modal" id="imageModal" onclick="closeImageModal()">
+        <span class="image-modal-close" onclick="closeImageModal()">&times;</span>
+        <img class="image-modal-content" id="modalImage">
+    </div>
 
     <div class="container">
         <div class="header">
@@ -307,6 +382,7 @@
                 <p>• 上传 <strong>1张图片</strong> → 单图识别</p>
                 <p>• 上传 <strong>多张图片</strong> (同一轮毂不同角度) → 多角度融合识别，准确率更高</p>
                 <p>• 建议勾选"启用图像增强"以提高小文字、模糊图片的识别率</p>
+                <p>• <strong>⭐ 放大倍数选择"智能自动判断"</strong>，系统会根据图片尺寸、清晰度、对比度自动计算最佳放大倍数</p>
             </div>
 
             <div class="upload-area" id="uploadArea" onclick="document.getElementById('fileInput').click()">
@@ -344,9 +420,11 @@
                     <div class="option-group">
                         <label>图像放大倍数</label>
                         <select id="scaleFactor">
+                            <option value="0">⭐ 智能自动判断 (推荐)</option>
                             <option value="2.0">2倍</option>
-                            <option value="3.0" selected>3倍 (推荐)</option>
+                            <option value="3.0">3倍</option>
                             <option value="4.0">4倍</option>
+                            <option value="5.0">5倍</option>
                         </select>
                     </div>
                 </div>
@@ -418,7 +496,7 @@
                     const div = document.createElement('div');
                     div.className = 'preview-item';
                     div.innerHTML = `
-                        <img src="${e.target.result}" alt="预览">
+                        <img src="${e.target.result}" alt="预览" onclick="openImageModal('${e.target.result}')">
                         <button class="remove-btn" onclick="removeFile(${index})">×</button>
                     `;
                     container.appendChild(div);
@@ -491,6 +569,10 @@
             formData.append('engine', document.getElementById('engine').value);
             formData.append('fusion_method', 'voting');
             formData.append('return_alternatives', 'true');
+            formData.append('enhance', document.getElementById('enhance').checked);
+            formData.append('scale_factor', document.getElementById('scaleFactor').value);
+            formData.append('confidence_threshold', document.getElementById('confidence').value);
+            formData.append('visualize', document.getElementById('visualize').checked);
 
             try {
                 const response = await fetch(`${API_BASE}/api/recognize/multi-angle`, {
@@ -528,6 +610,20 @@
 
             if (mode === 'single') {
                 html += `<p style="margin-bottom: 15px;">共识别出 <strong>${data.total_texts}</strong> 个文字</p>`;
+                
+                // 显示可视化图片
+                if (data.visualization_url) {
+                    html += `
+                        <div class="result-item">
+                            <h4 style="color: #666; font-size: 14px; margin-bottom: 10px;">🖼️ 可视化结果</h4>
+                            <img src="${API_BASE}${data.visualization_url}" 
+                                 alt="识别结果" 
+                                 style="max-width: 100%; border-radius: 8px; cursor: zoom-in;"
+                                 onclick="openImageModal('${API_BASE}${data.visualization_url}')">
+                        </div>
+                    `;
+                }
+                
                 if (data.results && data.results.length > 0) {
                     data.results.forEach(item => {
                         html += `
@@ -540,6 +636,24 @@
                 }
             } else {
                 // 多角度融合识别结果
+                
+                // 显示可视化图片(如果有)
+                if (data.visualization_urls && data.visualization_urls.length > 0) {
+                    html += `<div class="result-item"><h4 style="color: #666; font-size: 14px; margin-bottom: 10px;">🖼️ 可视化结果 (每张图片)</h4>`;
+                    data.visualization_urls.forEach((url, idx) => {
+                        html += `
+                            <div style="display: inline-block; margin: 5px;">
+                                <p style="text-align: center; font-size: 12px; color: #666;">图片 ${idx + 1}</p>
+                                <img src="${API_BASE}${url}" 
+                                     alt="图片${idx+1}识别结果" 
+                                     style="max-width: 300px; border-radius: 8px; cursor: zoom-in;"
+                                     onclick="openImageModal('${API_BASE}${url}')">
+                            </div>
+                        `;
+                    });
+                    html += `</div>`;
+                }
+                
                 if (data.lines && data.lines.length > 0) {
                     html += `<p style="margin-bottom: 15px;">共融合出 <strong>${data.total_lines}</strong> 行文字</p>`;
                     
@@ -615,6 +729,26 @@
             e.preventDefault();
             uploadArea.classList.remove('drag-over');
             handleFiles(e.dataTransfer.files);
+        });
+
+        // 图片放大功能
+        function openImageModal(imageSrc) {
+            const modal = document.getElementById('imageModal');
+            const modalImg = document.getElementById('modalImage');
+            modal.classList.add('show');
+            modalImg.src = imageSrc;
+        }
+
+        function closeImageModal() {
+            const modal = document.getElementById('imageModal');
+            modal.classList.remove('show');
+        }
+
+        // ESC键关闭模态框
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                closeImageModal();
+            }
         });
     </script>
 </body>

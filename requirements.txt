@@ -35,3 +35,7 @@ pytest-cov>=4.1.0
 
 # 日志
 loguru>=0.7.0
+
+# 云端OCR服务
+aliyun-python-sdk-core>=2.13.0
+aliyun-python-sdk-ocr>=1.0.25

@@ -35,9 +35,9 @@ preprocessing:
 detection:
   engine: "paddleocr"  # paddleocr
   paddleocr:
-    det_db_thresh: 0.2
-    det_db_box_thresh: 0.25
-    det_db_unclip_ratio: 1.6
+    det_db_thresh: 0.1  # 降低检测阈值,提高敏感度(原0.2)
+    det_db_box_thresh: 0.2  # 降低框阈值(原0.25)
+    det_db_unclip_ratio: 2.0  # 增大展开比例,更容易检测到小文字(原1.6)
     max_side_len: 960
     use_dilation: false
 
@@ -57,17 +57,42 @@ recognition:
     batch_size: 1
     allowlist: "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+-×/. "
     paragraph: false
+  
+  # 云端OCR配置
+  cloud_ocr:
+    enabled: false  # 启用云OCR作为备用引擎
+    provider: "aliyun"  # aliyun, tencent, baidu
+    
+    # 智能切换策略
+    use_as_fallback: true  # 作为本地OCR的备用方案
+    fallback_confidence_threshold: 0.7  # 低于此置信度时使用云OCR
+    fallback_min_results: 2  # 本地识别结果少于此数量时使用云OCR
+    
+    # 阿里云配置 (请填写您的密钥)
+    aliyun:
+      access_key_id: "xxx"  # 请替换为您的AccessKey ID
+      access_key_secret: "xxxx"  # 请替换为您的AccessKey Secret
+      endpoint: "ocr-api.cn-hangzhou.aliyuncs.com"
+      min_size: 8  # 最小字号
 
 # 后处理配置
 postprocessing:
   # 置信度过滤
-  min_confidence: 0.6
+  min_confidence: 0.4  # 降低置信度阈值,避免过滤正确结果(原0.6)
   # 长度过滤
   min_length: 1
   max_length: 30
   # 字符类型过滤
   enable_char_filter: true
   allowed_chars: "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+  # 区域过滤(过滤贴纸、标签等非轮毂文字)
+  enable_region_filter: false  # 禁用区域过滤(效果不理想)
+  min_area_ratio: 0.0003      # 最小面积比例(过滤过小噪点)
+  max_area_ratio: 0.012       # 最大面积比例(降低阈值,更严格过滤大标签)
+  min_aspect_ratio: 0.3        # 最小宽高比
+  max_aspect_ratio: 8          # 最大宽高比
+  center_region_only: false    # 是否只保留中心区域(可设为true过滤边缘文字)
+  center_region_ratio: 0.7     # 中心区域比例
   # 相似字符纠正
   enable_correction: true
   correction_rules:
